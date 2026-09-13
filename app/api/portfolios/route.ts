@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const portfolio: StoredPortfolio = {
       id: body.id || `port-${Date.now()}`,
-      name: body.name || "My Vested Portfolio",
+      name: body.name || "My Portfolio",
       createdAt: body.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       transactions: body.transactions || [],

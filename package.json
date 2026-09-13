@@ -1,6 +1,7 @@
 {
-  "name": "vested-stock-stats",
+  "name": "finvyo",
   "version": "1.0.0",
+  "description": "Finvyo - Your wealth. In view.",
   "private": true,
   "scripts": {
     "dev": "next dev",

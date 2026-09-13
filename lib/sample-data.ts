@@ -11,7 +11,7 @@ export const SAMPLE_VESTED_TRANSACTIONS: Transaction[] = [
     price: 1,
     amount: 5000,
     fee: 0,
-    notes: "LRS Funds Transfer via Vested",
+    notes: "LRS Funds Transfer",
     exchangeRate: 74.2,
   },
   {

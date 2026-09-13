@@ -228,7 +228,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g. Vested Monthly DCA"
+              placeholder="e.g. Monthly DCA"
               className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
             />
           </div>

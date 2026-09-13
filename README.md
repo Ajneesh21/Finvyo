@@ -1,13 +1,15 @@
-# Vested StockStats Analyzer
+# Finvyo
 
-A modern, high-performance **Next.js** web application designed to analyze **Vested** (US stock investing) PDF transaction reports and account statements, compute **Time-Weighted Return (TWR)** and **Money-Weighted Return (XIRR)**, benchmark portfolio performance against **major global indices** (S&P 500, Nasdaq 100, Nifty 50, Dow Jones, MSCI World), and track **real-time stock prices** with Redis caching and Docker support.
+> **Your wealth. In view.**
+
+A modern, high-performance **Next.js** web application designed to analyze US stock investing transaction reports and account statements, compute **Time-Weighted Return (TWR)** and **Money-Weighted Return (XIRR)**, benchmark portfolio performance against **major global indices** (S&P 500, Nasdaq 100, Nifty 50, Dow Jones, MSCI World), and track **real-time stock prices** with Redis caching and Docker support.
 
 ---
 
 ## Features
 
-- **Vested PDF Statement Parser**:
-  - Drag-and-drop parser supporting Vested Account Statements, DriveWealth Trade Confirmations, and Activity Reports.
+- **Spreadsheet & Statement Parser**:
+  - Drag-and-drop parser supporting Account Statements, Trade Confirmations, and Activity Reports (Excel, Numbers, CSV, and PDF).
   - Automatically extracts dates, tickers, action types (`BUY`, `SELL`, `DIVIDEND`, `DEPOSIT`, `WITHDRAWAL`, `FEE`), shares, prices, and amounts.
   - Interactive validation table with raw text inspector and manual edit support.
   - 1-click **"Load Sample Portfolio"** button pre-populated with 2+ years of realistic DCA history (AAPL, NVDA, MSFT, TSLA, VOO, GOOGL, AMZN).

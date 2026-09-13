@@ -142,7 +142,7 @@ export function parseVestedSpreadsheetSheets(
         const isDeposit = activity.includes("DEP") || activity.includes("REC") || !activity.includes("WITH");
         transactions.push({
           id: `tx-dep-${txCounter++}`,
-          date: dt.split("T")[0],
+          date: dt,
           symbol: "CASH",
           type: isDeposit ? "DEPOSIT" : "WITHDRAWAL",
           shares: 0,
@@ -180,7 +180,7 @@ export function parseVestedSpreadsheetSheets(
         const isBuy = activity.includes("BUY") || activity.includes("PURCHASE");
         transactions.push({
           id: `tx-trade-${txCounter++}`,
-          date: dt.split("T")[0],
+          date: dt,
           symbol: ticker,
           type: isBuy ? "BUY" : "SELL",
           shares: shares > 0 ? shares : price > 0 ? Number((amount / price).toFixed(6)) : 1,
@@ -209,7 +209,7 @@ export function parseVestedSpreadsheetSheets(
         if (activity.includes("DIVIDEND")) {
           transactions.push({
             id: `tx-inc-${txCounter++}`,
-            date: dt.split("T")[0],
+            date: dt,
             symbol: ticker !== "USD" ? ticker : "CASH",
             type: "DIVIDEND",
             shares: 0,
@@ -221,7 +221,7 @@ export function parseVestedSpreadsheetSheets(
         } else if (activity.includes("TAX")) {
           transactions.push({
             id: `tx-inc-${txCounter++}`,
-            date: dt.split("T")[0],
+            date: dt,
             symbol: ticker,
             type: "TAX",
             shares: 0,
@@ -233,7 +233,7 @@ export function parseVestedSpreadsheetSheets(
         } else if (activity.includes("INTEREST")) {
           transactions.push({
             id: `tx-inc-${txCounter++}`,
-            date: dt.split("T")[0],
+            date: dt,
             symbol: "CASH",
             type: "DIVIDEND",
             shares: 0,

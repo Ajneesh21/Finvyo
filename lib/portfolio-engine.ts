@@ -43,10 +43,10 @@ export async function computePortfolioSummary(
   const firstStockBuyTx = sortedTx.find(
     (t) => t.type === "BUY" && t.symbol !== "CASH" && t.symbol !== "USD"
   );
-  const firstTransactionDate = firstStockBuyTx ? firstStockBuyTx.date : sortedTx[0].date;
+  const firstTransactionDate = (firstStockBuyTx ? firstStockBuyTx.date : sortedTx[0].date).split("T")[0];
   const lastTransactionDate =
-    sortedTx[sortedTx.length - 1].date > new Date().toISOString().split("T")[0]
-      ? sortedTx[sortedTx.length - 1].date
+    sortedTx[sortedTx.length - 1].date.split("T")[0] > new Date().toISOString().split("T")[0]
+      ? sortedTx[sortedTx.length - 1].date.split("T")[0]
       : new Date().toISOString().split("T")[0];
 
   // Unique symbols in portfolio
@@ -239,7 +239,10 @@ export async function computePortfolioSummary(
       costBasis > 0 ? (unrealizedPnL / costBasis) * 100 : 0;
 
     const dayChangePercent = quote?.regularMarketChangePercent || 0;
-    const dayChange = (currentValue * dayChangePercent) / 100;
+    const dayChange =
+      typeof quote?.regularMarketChange === "number" && !isNaN(quote.regularMarketChange)
+        ? pos.shares * quote.regularMarketChange
+        : (currentValue * dayChangePercent) / 100;
 
     const info = getTickerSector(symbol);
 
@@ -298,18 +301,7 @@ export async function computePortfolioSummary(
   const totalReturnPercent =
     netInvestedCapital > 0 ? (totalReturnAmount / netInvestedCapital) * 100 : 0;
 
-  // 3. Daily Timeline from first stock buy date with Real Market Fluctuations
-  const timeline = await generatePortfolioTimeline(
-    sortedTx,
-    firstTransactionDate,
-    lastTransactionDate,
-    holdings,
-    totalHoldingsValue,
-    totalCostBasis,
-    quotes
-  );
-
-  // 4. Exact TWR of the invested stocks over holding period
+  // 3. Exact TWR of the invested stocks over holding period
   const stockBuyTxList = sortedTx.filter(
     (t) => t.date >= firstTransactionDate && (t.type === "BUY" || t.type === "SELL")
   );
@@ -320,6 +312,18 @@ export async function computePortfolioSummary(
       : 0;
 
   const twrPercent = Number(stockGrowthReturn.toFixed(2));
+
+  // 4. Daily Timeline from first stock buy date with Real Market Fluctuations
+  const timeline = await generatePortfolioTimeline(
+    sortedTx,
+    firstTransactionDate,
+    lastTransactionDate,
+    holdings,
+    totalHoldingsValue,
+    totalCostBasis,
+    quotes,
+    twrPercent
+  );
 
   // Compute annualized CAGR
   const dStart = new Date(firstTransactionDate).getTime();
@@ -410,7 +414,8 @@ async function generatePortfolioTimeline(
   holdings: Holding[],
   currentHoldingsValue: number,
   currentCostBasis: number,
-  quotes: Record<string, StockQuote>
+  quotes: Record<string, StockQuote>,
+  finalTwrPercent?: number
 ): Promise<DailyPortfolioPoint[]> {
   const points: DailyPortfolioPoint[] = [];
   const start = new Date(startDateStr);
@@ -479,7 +484,7 @@ async function generatePortfolioTimeline(
     const dateStr = d.toISOString().split("T")[0];
 
     // Process transactions up to this date
-    while (txIdx < transactions.length && transactions[txIdx].date <= dateStr) {
+    while (txIdx < transactions.length && transactions[txIdx].date.split("T")[0] <= dateStr) {
       const tx = transactions[txIdx];
       const sym = tx.symbol.trim().toUpperCase();
       if (tx.type === "BUY" && sym !== "CASH" && sym !== "USD") {
@@ -550,7 +555,11 @@ async function generatePortfolioTimeline(
   if (points.length > 0) {
     const last = points[points.length - 1];
     const finalReturn =
-      currentCostBasis > 0 ? ((currentHoldingsValue - currentCostBasis) / currentCostBasis) * 100 : 0;
+      typeof finalTwrPercent === "number"
+        ? finalTwrPercent
+        : currentCostBasis > 0
+        ? ((currentHoldingsValue - currentCostBasis) / currentCostBasis) * 100
+        : 0;
 
     const spPercent =
       spStart > 0 ? ((lastKnownSp - spStart) / spStart) * 100 : 0;

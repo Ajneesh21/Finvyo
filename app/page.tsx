@@ -40,7 +40,7 @@ export default function Home() {
   const [portfolios, setPortfolios] = useState<StoredPortfolio[]>([]);
   const [currentPortfolioId, setCurrentPortfolioId] = useState<string>("");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [portfolioName, setPortfolioName] = useState<string>("My Vested Portfolio");
+  const [portfolioName, setPortfolioName] = useState<string>("My Portfolio");
 
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
@@ -166,7 +166,7 @@ export default function Home() {
         handleSelectPortfolio(remaining[0].id);
       } else {
         setCurrentPortfolioId("");
-        setPortfolioName("My Vested Portfolio");
+        setPortfolioName("My Portfolio");
         setTransactions([]);
         setSummary(null);
       }
@@ -189,7 +189,7 @@ export default function Home() {
     const newPortId = `port-${Date.now()}`;
     const newPort: StoredPortfolio = {
       id: newPortId,
-      name: name || "Imported Vested Portfolio",
+      name: name || "Imported Portfolio",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       transactions: newTx,
@@ -218,7 +218,7 @@ export default function Home() {
   const handleLoadDemo = () => {
     handleTransactionsLoaded(
       SAMPLE_VESTED_TRANSACTIONS,
-      "Sample Vested US Growth Portfolio"
+      "Sample Finvyo US Growth Portfolio"
     );
   };
 
@@ -477,7 +477,7 @@ export default function Home() {
                 No Spreadsheet Statement Loaded
               </h3>
               <p className="text-xs text-slate-400 max-w-sm mt-1">
-                Upload your Vested Excel (.xlsx), Apple Numbers (.numbers), or CSV export to analyze your portfolio. Or try the DCF Valuation tab above.
+                Upload your Excel (.xlsx), Apple Numbers (.numbers), or CSV export to analyze your portfolio. Or try the DCF Valuation tab above.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -523,7 +523,7 @@ export default function Home() {
       <footer className="border-t border-slate-800/80 bg-[#080b12] py-4 text-center text-xs text-slate-500">
         <div className="mx-auto max-w-7xl px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p>
-            Vested StockStats Analyzer &copy; {new Date().getFullYear()} &middot; Next.js + Finnhub + Redis
+            Finvyo &copy; {new Date().getFullYear()} &middot; Your wealth. In view. &middot; Next.js + Finnhub + Redis
           </p>
           <p className="text-[11px] text-slate-600">
             Real-time market quotes via Finnhub API & Yahoo Finance. All calculations computed locally.

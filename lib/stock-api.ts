@@ -88,7 +88,7 @@ export async function getStockQuote(symbol: string): Promise<StockQuote> {
   try {
     const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
       cleanSymbol
-    )}?interval=1d&range=5d`;
+    )}?interval=1d&range=1d`;
 
     const res = await fetch(yfUrl, {
       headers: {
@@ -105,8 +105,18 @@ export async function getStockQuote(symbol: string): Promise<StockQuote> {
         const regularMarketPrice = meta.regularMarketPrice;
         const prevClose =
           meta.chartPreviousClose || meta.previousClose || regularMarketPrice;
-        const change = regularMarketPrice - prevClose;
-        const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+        const change =
+          typeof meta.fulldayChange === "number"
+            ? meta.fulldayChange
+            : regularMarketPrice - prevClose;
+        const changePercent =
+          typeof meta.regularMarketChangePercent === "number"
+            ? meta.regularMarketChangePercent
+            : typeof meta.fulldayChangePercent === "number"
+            ? meta.fulldayChangePercent
+            : prevClose > 0
+            ? (change / prevClose) * 100
+            : 0;
 
         const info = getTickerSector(cleanSymbol);
 
@@ -158,12 +168,16 @@ export async function getMultipleStockQuotes(
   );
 
   const results: Record<string, StockQuote> = {};
-  await Promise.all(
-    uniqueSymbols.map(async (symbol) => {
-      if (symbol === "CASH" || symbol === "USD") return;
-      results[symbol] = await getStockQuote(symbol);
-    })
-  );
+  const chunkSize = 4;
+  for (let i = 0; i < uniqueSymbols.length; i += chunkSize) {
+    const chunk = uniqueSymbols.slice(i, i + chunkSize);
+    await Promise.all(
+      chunk.map(async (symbol) => {
+        if (symbol === "CASH" || symbol === "USD") return;
+        results[symbol] = await getStockQuote(symbol);
+      })
+    );
+  }
 
   return results;
 }

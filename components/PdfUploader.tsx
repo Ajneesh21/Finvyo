@@ -122,7 +122,7 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
     if (!portName || portName === "Pasted Statement Activity") {
       portName = parsedResult.accountInfo?.investorName
         ? `${parsedResult.accountInfo.investorName}'s Portfolio`
-        : "Imported Vested Portfolio";
+        : "Imported Portfolio";
     }
 
     onTransactionsLoaded(parsedResult.transactions, portName);
@@ -132,7 +132,7 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
   const handleLoadSample = () => {
     onTransactionsLoaded(
       SAMPLE_VESTED_TRANSACTIONS,
-      "Sample Vested US Growth Portfolio"
+      "Sample Finvyo US Growth Portfolio"
     );
     onClose();
   };
@@ -157,10 +157,10 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
             </div>
             <div>
               <h2 className="text-base font-semibold text-white">
-                Import Vested Spreadsheet
+                Import Spreadsheet Statement
               </h2>
               <p className="text-xs text-slate-400">
-                Upload your Vested Excel (.xlsx, .xls), Apple Numbers (.numbers), or CSV export
+                Upload your Excel (.xlsx, .xls), Apple Numbers (.numbers), or CSV export
               </p>
             </div>
           </div>
@@ -234,7 +234,7 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
                 <div className="flex flex-col items-center gap-3">
                   <Loader2 className="h-10 w-10 animate-spin text-emerald-400" />
                   <p className="text-sm font-medium text-slate-200">
-                    Parsing Vested Spreadsheet Sheets...
+                    Parsing Spreadsheet Sheets...
                   </p>
                   <p className="text-xs text-slate-400">
                     Extracting Trades, Transfers, Income, and Ledger Balances
@@ -346,7 +346,7 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
                       className="flex items-center justify-between rounded-lg bg-slate-900/80 px-3 py-1.5 border border-slate-800/60 text-[11px]"
                     >
                       <div className="flex items-center gap-2">
-                        <span className="text-slate-400">{tx.date}</span>
+                        <span className="text-slate-400">{formatDate(tx.date, "yyyy-MM-dd")}</span>
                         <span
                           className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
                             tx.type === "BUY"

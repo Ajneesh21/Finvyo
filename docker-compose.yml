@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: stockstats-web
+    container_name: finvyo-web
     restart: no
     deploy:
       resources:
@@ -23,7 +23,7 @@ services:
 
   redis:
     image: redis:8-alpine
-    container_name: stockstats-redis
+    container_name: finvyo-redis
     restart: no
     deploy:
       resources:

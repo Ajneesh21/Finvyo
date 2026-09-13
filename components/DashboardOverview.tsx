@@ -34,8 +34,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     (sum, h) => sum + h.dayChange,
     0
   );
+  const previousDayValue = summary.holdingsValue - totalDayChange;
   const totalDayChangePercent =
-    summary.holdingsValue > 0
+    previousDayValue > 0
+      ? (totalDayChange / previousDayValue) * 100
+      : summary.holdingsValue > 0
       ? (totalDayChange / summary.holdingsValue) * 100
       : 0;
   const isDayPositive = totalDayChange >= 0;

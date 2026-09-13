@@ -71,8 +71,13 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
   const totalUnrealizedPercent =
     totalCostBasis > 0 ? (totalUnrealized / totalCostBasis) * 100 : 0;
   const totalDayGain = holdings.reduce((s, h) => s + h.dayChange, 0);
+  const previousDayHoldingsValue = totalHoldingsValue - totalDayGain;
   const totalDayGainPercent =
-    totalHoldingsValue > 0 ? (totalDayGain / totalHoldingsValue) * 100 : 0;
+    previousDayHoldingsValue > 0
+      ? (totalDayGain / previousDayHoldingsValue) * 100
+      : totalHoldingsValue > 0
+      ? (totalDayGain / totalHoldingsValue) * 100
+      : 0;
 
   if (holdings.length === 0) {
     return (

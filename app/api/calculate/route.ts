@@ -3,6 +3,7 @@ import { computePortfolioSummary } from "@/lib/portfolio-engine";
 import { Transaction } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function POST(req: NextRequest) {
   try {

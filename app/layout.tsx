@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Vested StockStats Analyzer | Time-Weighted Return (TWR) & Global Benchmarks",
+  title: "Finvyo | Your wealth. In view.",
   description:
-    "Analyze your Vested US stock transaction statements, compute Time-Weighted Return (TWR), track real-time stock prices, and benchmark against S&P 500, Nasdaq, and Nifty 50.",
+    "Finvyo – Your wealth. In view. Analyze your US stock transaction statements, compute Time-Weighted Return (TWR), track real-time stock prices, and benchmark against S&P 500, Nasdaq, and Nifty 50.",
 };
 
 export default function RootLayout({
