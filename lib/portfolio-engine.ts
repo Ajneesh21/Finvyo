@@ -7,7 +7,7 @@ import {
   StockQuote,
 } from "./types";
 import { getTickerSector } from "./utils";
-import { calculateTWR, CashFlowEvent } from "./twr-calculator";
+import { calculateTWR, CashFlowEvent, alignTimelineTWRSeries } from "./twr-calculator";
 import { calculateXIRR } from "./xirr-calculator";
 import { getMultipleStockQuotes, getStockDailyHistory } from "./stock-api";
 import { computeBenchmarkMetrics } from "./benchmark-service";
@@ -403,6 +403,14 @@ export async function computePortfolioSummary(
       ? Number(twrResult.annualizedTwrPercent.toFixed(2))
       : Number(((Math.pow(1 + twrPercent / 100, 1 / years) - 1) * 100).toFixed(2));
 
+  // Align timeline cumulativeTWR series with true compounded TWR, strictly matching twrPercent at the end
+  alignTimelineTWRSeries(
+    timeline,
+    twrResult.subPeriods,
+    twrPercent,
+    effectiveTwrFlows
+  );
+
   // 6. Money-Weighted Return (XIRR)
   const xirrCashFlows = [
     ...stockBuyTxList.map((t) => ({
@@ -443,6 +451,7 @@ export async function computePortfolioSummary(
     holdingsValue: Number(totalHoldingsValue.toFixed(2)),
     totalReturnAmount: Number(totalReturnAmount.toFixed(2)),
     totalReturnPercent: Number(totalReturnPercent.toFixed(2)),
+    simpleReturnPercent: Number(totalReturnPercent.toFixed(2)),
     unrealizedPnL: Number(unrealizedPnL.toFixed(2)),
     unrealizedPnLPercent: Number(unrealizedPnLPercent.toFixed(2)),
     realizedPnL: Number(totalRealizedPnL.toFixed(2)),
@@ -478,6 +487,71 @@ export async function computePortfolioSummary(
   };
 }
 
+/**
+ * Detects whether historical market data from Yahoo Finance has been retroactively
+ * adjusted for a corporate stock split (or reverse split) that is not reflected in
+ * pre-split broker transaction execution prices.
+ *
+ * Market price fluctuations — including severe single-day drops (-25%, -35%, -40%)
+ * or sharp rallies (+25%, +50%) — are legitimate market price movements and MUST NOT
+ * be mistaken for corporate splits. Corporate splits occur in discrete integer or simple
+ * fractional ratios (e.g. 2:1, 1:2, 3:1, 1:3, 10:1, or penny-stock 1:125 reverse splits).
+ */
+export function detectSplitScale(avgRatio: number): number {
+  if (!avgRatio || isNaN(avgRatio) || avgRatio <= 0) return 1.0;
+
+  // 1. Broad safety zone for ALL market price fluctuations:
+  // Intraday drops up to -42% (ratio 0.58) and surges up to +70% (ratio 1.70)
+  // are real market price movements, NEVER stock splits.
+  if (avgRatio >= 0.58 && avgRatio <= 1.70) {
+    return 1.0;
+  }
+
+  // 2. Standard forward stock splits (prices retroactively halved, thirded, etc.)
+  // 2:1 split -> ~0.50
+  if (avgRatio >= 0.44 && avgRatio <= 0.56) return 0.5;
+  // 3:1 split -> ~0.333
+  if (avgRatio >= 0.29 && avgRatio <= 0.38) return 1 / 3;
+  // 4:1 split -> ~0.25
+  if (avgRatio >= 0.22 && avgRatio <= 0.28) return 0.25;
+  // 5:1 split -> ~0.20
+  if (avgRatio >= 0.18 && avgRatio <= 0.22) return 0.20;
+  // 10:1 split -> ~0.10
+  if (avgRatio >= 0.085 && avgRatio <= 0.115) return 0.10;
+  // 20:1 split -> ~0.05
+  if (avgRatio >= 0.042 && avgRatio <= 0.058) return 0.05;
+
+  // 3. Standard reverse stock splits (prices retroactively doubled, tripled, etc.)
+  // 1:2 reverse split -> ~2.00
+  if (avgRatio >= 1.75 && avgRatio <= 2.25) return 2.0;
+  // 1:3 reverse split -> ~3.00
+  if (avgRatio >= 2.65 && avgRatio <= 3.35) return 3.0;
+  // 1:4 reverse split -> ~4.00
+  if (avgRatio >= 3.55 && avgRatio <= 4.45) return 4.0;
+  // 1:5 reverse split -> ~5.00
+  if (avgRatio >= 4.55 && avgRatio <= 5.45) return 5.0;
+  // 1:10 reverse split -> ~10.00
+  if (avgRatio >= 9.0 && avgRatio <= 11.0) return 10.0;
+
+  // 4. Large reverse splits (penny stocks: 1:15, 1:20, 1:50, 1:100, 1:125, etc.)
+  if (avgRatio > 5.5) {
+    const roundInt = Math.round(avgRatio);
+    if (Math.abs(avgRatio - roundInt) / avgRatio < 0.1) return roundInt;
+    return avgRatio;
+  }
+
+  // 5. Very large forward splits (e.g. 50:1, 100:1)
+  if (avgRatio < 0.04) {
+    const inv = 1 / avgRatio;
+    const roundInv = Math.round(inv);
+    if (Math.abs(inv - roundInv) / inv < 0.1) return 1 / roundInv;
+    return avgRatio;
+  }
+
+  // Safe default: if not clearly a corporate split, DO NOT SCALE (scale = 1.0)
+  return 1.0;
+}
+
 async function generatePortfolioTimeline(
   transactions: Transaction[],
   startDateStr: string,
@@ -506,20 +580,56 @@ async function generatePortfolioTimeline(
       getStockDailyHistory("URTH", startDateStr),
     ]);
 
-  // Also fetch daily history for the top held stocks with concurrency limiting (chunk size 4)
-  const heldSymbols = holdings.map((h) => h.symbol);
+  // Fetch daily history for all traded symbols with concurrency limiting (chunk size 4)
+  const allSymbols = Array.from(
+    new Set([
+      ...holdings.map((h) => h.symbol),
+      ...transactions
+        .map((t) => t.symbol?.trim().toUpperCase())
+        .filter((s) => s && s !== "CASH" && s !== "USD"),
+    ])
+  );
   const stockHistories: Record<string, Map<string, number>> = {};
   const CHUNK_SIZE = 4;
 
-  for (let i = 0; i < heldSymbols.length; i += CHUNK_SIZE) {
-    const chunk = heldSymbols.slice(i, i + CHUNK_SIZE);
+  for (let i = 0; i < allSymbols.length; i += CHUNK_SIZE) {
+    const chunk = allSymbols.slice(i, i + CHUNK_SIZE);
     await Promise.all(
       chunk.map(async (sym) => {
         // useAdjustedPrices=false: dividends for held stocks are tracked as explicit DIVIDEND
         // transactions and added to cashBalance. Using adjusted prices here would count
         // dividend income twice — once via the adjusted price series and once via cash.
         const hist = await getStockDailyHistory(sym, startDateStr, false);
-        stockHistories[sym] = new Map(hist.map((p) => [p.date, p.close]));
+
+        // Detect if Yahoo Finance retroactively split-adjusted historical prices (e.g. 1:2, 2:1, 1:125)
+        // while broker transaction records retain pre-split shares and execution prices.
+        const symTrades = transactions.filter(
+          (t) =>
+            t.symbol?.trim().toUpperCase() === sym &&
+            (t.type === "BUY" || t.type === "SELL") &&
+            t.price > 0
+        );
+
+        let splitScale = 1.0;
+        if (symTrades.length > 0 && hist.length > 0) {
+          const histMapTemp = new Map(hist.map((p) => [p.date, p.close]));
+          const ratios: number[] = [];
+          for (const st of symTrades) {
+            const d = st.date.split("T")[0];
+            const closeOnDate = histMapTemp.get(d);
+            if (closeOnDate && closeOnDate > 0 && st.price > 0) {
+              ratios.push(closeOnDate / st.price);
+            }
+          }
+          if (ratios.length > 0) {
+            const avgRatio = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+            splitScale = detectSplitScale(avgRatio);
+          }
+        }
+
+        stockHistories[sym] = new Map(
+          hist.map((p) => [p.date, splitScale !== 1.0 ? Number((p.close / splitScale).toFixed(4)) : p.close])
+        );
       })
     );
   }
@@ -542,20 +652,44 @@ async function generatePortfolioTimeline(
   let lastKnownDow = dowStart;
   let lastKnownMsci = msciStart;
 
-  // Track last known prices for each held stock.
-  // Seed with the live quote price. If the API failed and returned 0, seed with 0 —
-  // never fall back to an arbitrary $100 which would silently fabricate portfolio value.
-  // Historical prices from stockHistories will overwrite this as they are found.
+  // Track last known prices for each stock.
+  // Seed with earliest historical price or earliest transaction purchase price rather than
+  // today's live quotes to prevent artificial day-1 price collapses when timeline starts.
   const lastKnownStockPrice: Record<string, number> = {};
-  heldSymbols.forEach((sym) => {
-    const quotePrice = quotes[sym]?.regularMarketPrice;
-    const holdingPrice = holdings.find((h) => h.symbol === sym)?.currentPrice;
-    lastKnownStockPrice[sym] =
-      quotePrice && quotePrice > 0
-        ? quotePrice
-        : holdingPrice && holdingPrice > 0
-        ? holdingPrice
-        : 0; // 0 = unknown; timeline will use last seen historical price instead
+  allSymbols.forEach((sym) => {
+    let initialPrice = 0;
+    const hist = stockHistories[sym];
+    if (hist && hist.size > 0) {
+      if (hist.has(startDateStr)) {
+        initialPrice = hist.get(startDateStr)!;
+      } else {
+        const sortedHistDates = Array.from(hist.keys()).sort();
+        if (sortedHistDates.length > 0) {
+          initialPrice = hist.get(sortedHistDates[0])!;
+        }
+      }
+    }
+    if (initialPrice <= 0) {
+      const firstTx = transactions.find(
+        (t) =>
+          t.symbol?.trim().toUpperCase() === sym &&
+          (t.type === "BUY" || (t.price && t.price > 0))
+      );
+      if (firstTx && firstTx.price > 0) {
+        initialPrice = firstTx.price;
+      }
+    }
+    if (initialPrice <= 0) {
+      const holdingPrice = holdings.find((h) => h.symbol === sym)?.currentPrice;
+      const quotePrice = quotes[sym]?.regularMarketPrice;
+      initialPrice =
+        holdingPrice && holdingPrice > 0
+          ? holdingPrice
+          : quotePrice && quotePrice > 0
+          ? quotePrice
+          : 0;
+    }
+    lastKnownStockPrice[sym] = initialPrice;
   });
 
   const step = totalDays > 365 ? 3 : totalDays > 90 ? 2 : 1;
@@ -630,8 +764,8 @@ async function generatePortfolioTimeline(
     if (dowMap.has(dateStr)) lastKnownDow = dowMap.get(dateStr)!;
     if (msciMap.has(dateStr)) lastKnownMsci = msciMap.get(dateStr)!;
 
-    // Update last known prices for each held stock from actual historical daily closes
-    heldSymbols.forEach((sym) => {
+    // Update last known prices for each stock from actual historical daily closes
+    allSymbols.forEach((sym) => {
       if (stockHistories[sym]?.has(dateStr)) {
         lastKnownStockPrice[sym] = stockHistories[sym].get(dateStr)!;
       }
@@ -675,6 +809,7 @@ async function generatePortfolioTimeline(
       holdingsValue: Number(dayHoldingsVal.toFixed(2)),
       unrealizedPnL: Number((portVal - baseCost).toFixed(2)),
       cumulativeTWR: Number(portTwr.toFixed(2)),
+      simpleReturn: Number(portTwr.toFixed(2)),
       sp500TWR: Number(spPercent.toFixed(2)),
       nasdaqTWR: Number(ndxPercent.toFixed(2)),
       nifty50TWR: Number(niftyPercent.toFixed(2)),
@@ -706,6 +841,10 @@ async function generatePortfolioTimeline(
     const finalCash = Math.max(0, runningCash);
     const finalTotalVal = currentHoldingsValue + (hasDeposits ? finalCash : 0);
     const finalNetInvested = hasDeposits && cumulativeDeposits > 0 ? cumulativeDeposits : currentCostBasis;
+    const finalSimpleReturn =
+      finalNetInvested > 0
+        ? ((finalTotalVal - finalNetInvested) / finalNetInvested) * 100
+        : 0;
 
     if (last.date < endDateStr) {
       points.push({
@@ -716,6 +855,7 @@ async function generatePortfolioTimeline(
         holdingsValue: Number(currentHoldingsValue.toFixed(2)),
         unrealizedPnL: Number((finalTotalVal - finalNetInvested).toFixed(2)),
         cumulativeTWR: Number(finalReturn.toFixed(2)),
+        simpleReturn: Number(finalSimpleReturn.toFixed(2)),
         sp500TWR: Number(spPercent.toFixed(2)),
         nasdaqTWR: Number(ndxPercent.toFixed(2)),
         nifty50TWR: Number(niftyPercent.toFixed(2)),
@@ -729,6 +869,7 @@ async function generatePortfolioTimeline(
       last.holdingsValue = Number(currentHoldingsValue.toFixed(2));
       last.unrealizedPnL = Number((finalTotalVal - finalNetInvested).toFixed(2));
       last.cumulativeTWR = Number(finalReturn.toFixed(2));
+      last.simpleReturn = Number(finalSimpleReturn.toFixed(2));
     }
   }
 
@@ -793,6 +934,7 @@ function createEmptyPortfolioSummary(): PortfolioSummary {
     holdingsValue: 0,
     totalReturnAmount: 0,
     totalReturnPercent: 0,
+    simpleReturnPercent: 0,
     unrealizedPnL: 0,
     unrealizedPnLPercent: 0,
     realizedPnL: 0,

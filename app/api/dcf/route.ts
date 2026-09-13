@@ -430,12 +430,13 @@ export async function GET(req: NextRequest) {
     await setCachedData(cacheKey, financialData, DCF_CACHE_TTL);
 
     return NextResponse.json({ financialData, fromCache: false });
-  } catch (err: any) {
-    console.error(`[DCF API Error for ${symbol}]:`, err);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[DCF API Error for ${symbol}]:`, errorMsg);
     return NextResponse.json(
       {
         error: `Failed to fetch financial data for ${symbol}`,
-        details: err?.message || String(err),
+        details: errorMsg,
       },
       { status: 500 }
     );

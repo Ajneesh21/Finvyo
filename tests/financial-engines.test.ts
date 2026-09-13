@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { calculateXIRR } from "../lib/xirr-calculator";
 import { calculateTWR } from "../lib/twr-calculator";
-import { computePortfolioSummary } from "../lib/portfolio-engine";
+import { computePortfolioSummary, detectSplitScale } from "../lib/portfolio-engine";
 import { Transaction, StockQuote } from "../lib/types";
 import { calculateWACC, calculateDCF } from "../lib/dcf-engine";
 import { FinancialData, DCFAssumptions } from "../lib/dcf-types";
@@ -475,5 +475,126 @@ describe("Portfolio Accounting Edge Cases", () => {
     assert.equal(summary.holdingsValue, 6000);
     assert.equal(summary.unrealizedPnL, 1250);
     assert.ok(summary.twrPercent > 0);
+    assert.ok(typeof summary.simpleReturnPercent === "number");
+    assert.ok(summary.simpleReturnPercent > 0);
+    assert.equal(
+      summary.timeline[summary.timeline.length - 1].cumulativeTWR,
+      summary.twrPercent,
+      "Final point in timeline must match summary.twrPercent"
+    );
+  });
+
+  it("should ensure timeline final point cumulativeTWR strictly matches summary.twrPercent across multiple cash deposits", async () => {
+    const transactions: Transaction[] = [
+      {
+        id: "tx-dep-1",
+        date: "2024-01-01T10:00:00Z",
+        type: "DEPOSIT",
+        symbol: "CASH",
+        shares: 1,
+        price: 5000,
+        amount: 5000,
+      },
+      {
+        id: "tx-buy-1",
+        date: "2024-01-02T10:00:00Z",
+        type: "BUY",
+        symbol: "AAPL",
+        shares: 20,
+        price: 150,
+        amount: 3000,
+      },
+      {
+        id: "tx-dep-2",
+        date: "2024-03-01T10:00:00Z",
+        type: "DEPOSIT",
+        symbol: "CASH",
+        shares: 1,
+        price: 2000,
+        amount: 2000,
+      },
+      {
+        id: "tx-buy-2",
+        date: "2024-03-05T10:00:00Z",
+        type: "BUY",
+        symbol: "AAPL",
+        shares: 10,
+        price: 180,
+        amount: 1800,
+      },
+    ];
+
+    const quotesOverride: Record<string, StockQuote> = {
+      AAPL: {
+        symbol: "AAPL",
+        regularMarketPrice: 220,
+        regularMarketChange: 0,
+        regularMarketChangePercent: 0,
+        lastUpdated: new Date().toISOString(),
+      },
+    };
+
+    const summary = await computePortfolioSummary(transactions, quotesOverride);
+    assert.ok(summary.timeline.length > 0);
+    assert.equal(
+      summary.timeline[summary.timeline.length - 1].cumulativeTWR,
+      summary.twrPercent,
+      `Expected graph end ${summary.timeline[summary.timeline.length - 1].cumulativeTWR} to equal summary TWR ${summary.twrPercent}`
+    );
+    assert.equal(summary.totalDeposits, 7000);
+    assert.ok(typeof summary.simpleReturnPercent === "number");
+    assert.equal(summary.timeline[0].cumulativeTWR, 0);
+  });
+});
+
+describe("Stock Split Detection & Normalization", () => {
+  it("should never scale market price fluctuations, including 25%, 30%, or 40% drops", () => {
+    // Exact 25% drop (ratio 0.75)
+    assert.equal(detectSplitScale(0.75), 1.0);
+    // Severe 30% drop (ratio 0.70)
+    assert.equal(detectSplitScale(0.70), 1.0);
+    // Severe 35% drop (ratio 0.65)
+    assert.equal(detectSplitScale(0.65), 1.0);
+    // Severe 40% drop (ratio 0.60)
+    assert.equal(detectSplitScale(0.60), 1.0);
+    // Moderate variations and gains
+    assert.equal(detectSplitScale(1.0), 1.0);
+    assert.equal(detectSplitScale(1.05), 1.0);
+    assert.equal(detectSplitScale(0.92), 1.0);
+    assert.equal(detectSplitScale(1.25), 1.0);
+    assert.equal(detectSplitScale(1.50), 1.0);
+  });
+
+  it("should accurately detect and scale 1:2 reverse splits (~2.0x)", () => {
+    assert.equal(detectSplitScale(2.0), 2.0);
+    assert.equal(detectSplitScale(1.95), 2.0);
+    assert.equal(detectSplitScale(2.08), 2.0);
+  });
+
+  it("should accurately detect and scale 2:1 forward splits (~0.5x)", () => {
+    assert.equal(detectSplitScale(0.5), 0.5);
+    assert.equal(detectSplitScale(0.48), 0.5);
+    assert.equal(detectSplitScale(0.52), 0.5);
+  });
+
+  it("should accurately detect standard integer splits (3:1, 4:1, 1:3, 1:4, 10:1)", () => {
+    assert.ok(Math.abs(detectSplitScale(0.33) - 1 / 3) < 0.001);
+    assert.equal(detectSplitScale(0.25), 0.25);
+    assert.equal(detectSplitScale(3.0), 3.0);
+    assert.equal(detectSplitScale(4.0), 4.0);
+    assert.equal(detectSplitScale(10.0), 10.0);
+  });
+
+  it("should accurately scale large penny stock reverse splits (e.g. 1:125, 1:46, 1:200)", () => {
+    assert.equal(detectSplitScale(124.8), 125);
+    assert.equal(detectSplitScale(125.0), 125);
+    assert.equal(detectSplitScale(46.1), 46);
+    assert.equal(detectSplitScale(200.0), 200);
+  });
+
+  it("should safely default to 1.0 for unconfirmed ratios", () => {
+    assert.equal(detectSplitScale(1.72), 1.0);
+    assert.equal(detectSplitScale(0.57), 1.0);
+    assert.equal(detectSplitScale(2.40), 1.0);
   });
 });

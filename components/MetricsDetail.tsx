@@ -199,7 +199,7 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary }) => {
               Realized Trades & Capital Gains Tax Breakdown
             </h3>
             <p className="text-xs text-slate-400">
-              Tax categorization for Indian foreign equity taxation (&gt;24 months = Long Term at 20% with indexation or 12.5% new regime)
+              Indian foreign equity classification: &gt;24 months (&gt;730 days) qualifies as Long-Term. Short-term capital gains are taxed at your individual income tax slab rate (US dividends are subject to 25% flat withholding tax at source).
             </p>
           </div>
           <div className="flex items-center gap-2">

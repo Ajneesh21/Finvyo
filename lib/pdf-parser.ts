@@ -200,12 +200,12 @@ export function parseVestedXlsxBuffer(buffer: Buffer): ParsedPdfResult {
       totalTransactionsParsed: transactions.length,
       errors: transactions.length === 0 ? ["No valid transaction rows found in XLSX sheet."] : [],
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
     return {
       success: false,
       transactions: [],
       totalTransactionsParsed: 0,
-      errors: [`XLSX parsing failed: ${err?.message || String(err)}`],
+      errors: [`XLSX parsing failed: ${err instanceof Error ? err.message : String(err)}`],
     };
   }
 }

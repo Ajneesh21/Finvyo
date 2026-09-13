@@ -6,6 +6,7 @@ interface CacheEntry<T> {
   expiry: number;
 }
 
+const MAX_MEMORY_CACHE_ENTRIES = 5000;
 const memoryCache = new Map<string, CacheEntry<unknown>>();
 
 let redisClient: Redis | null = null;
@@ -66,13 +67,16 @@ export async function getCachedData<T>(key: string): Promise<T | null> {
     }
   }
 
-  // Memory cache lookup
+  // Memory cache lookup with LRU renewal
   const entry = memoryCache.get(key);
   if (entry) {
     if (Date.now() > entry.expiry) {
       memoryCache.delete(key);
       return null;
     }
+    // Refresh LRU order (move to most recently used)
+    memoryCache.delete(key);
+    memoryCache.set(key, entry);
     return entry.value as T;
   }
 
@@ -91,6 +95,16 @@ export async function setCachedData<T>(
       await redisClient.set(key, JSON.stringify(value), "EX", ttlSeconds);
     } catch {
       // Fallback to memory
+    }
+  }
+
+  // LRU eviction if size limit reached
+  if (memoryCache.has(key)) {
+    memoryCache.delete(key);
+  } else if (memoryCache.size >= MAX_MEMORY_CACHE_ENTRIES) {
+    const oldestKey = memoryCache.keys().next().value;
+    if (oldestKey) {
+      memoryCache.delete(oldestKey);
     }
   }
 

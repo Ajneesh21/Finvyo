@@ -10,6 +10,7 @@ import {
   Activity,
   Award,
   Zap,
+  Percent,
 } from "lucide-react";
 import { PortfolioSummary } from "@/lib/types";
 import { formatCurrency, formatPercent, formatDate } from "@/lib/utils";
@@ -24,6 +25,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const isTwrPositive = summary.twrPercent >= 0;
   const isXirrPositive = summary.xirrPercent >= 0;
   const isUnrealizedPositive = summary.unrealizedPnL >= 0;
+
+  const simpleReturn =
+    summary.simpleReturnPercent !== undefined
+      ? summary.simpleReturnPercent
+      : summary.totalReturnPercent;
+  const isSimplePositive = simpleReturn >= 0;
+
+  const netInvested =
+    summary.totalDeposits > 0
+      ? summary.totalDeposits
+      : summary.netInvestedCapital;
 
   // Day's total portfolio change
   const totalDayChange = summary.holdings.reduce(
@@ -70,6 +82,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </span>
           </div>
 
+          <div className="flex items-center gap-1.5 border-l border-slate-800 pl-3">
+            <span className="text-slate-400">Simple Return:</span>
+            <span
+              className={`font-bold font-mono ${
+                isSimplePositive ? "text-emerald-400" : "text-rose-400"
+              }`}
+            >
+              {formatPercent(simpleReturn)}
+            </span>
+          </div>
+
           {sp500 && (
             <div className="flex items-center gap-1.5 border-l border-slate-800 pl-3">
               <span className="text-slate-400">S&P 500:</span>
@@ -100,7 +123,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       </div>
 
       {/* Main KPI Grid */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {/* Card 1: Stock Portfolio Valuation */}
         <div className="group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
           <div className="flex items-center justify-between text-slate-400 text-xs">
@@ -144,11 +167,46 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         </div>
 
-        {/* Card 2: Time-Weighted Return (TWR) */}
+        {/* Card 2: Simple Return (ROI) */}
+        <div className="group relative rounded-2xl border border-emerald-500/30 bg-gradient-to-b from-emerald-950/20 to-slate-900/90 p-5 shadow-lg shadow-emerald-500/5 hover:border-emerald-500/50 transition">
+          <div className="flex items-center justify-between text-slate-400 text-xs">
+            <div className="flex items-center gap-1">
+              <span className="font-medium text-emerald-300">Simple Return (ROI)</span>
+              <div
+                className="group/tooltip relative cursor-help"
+                title="Simple absolute return on invested capital: (Total Portfolio Value + Dividends + Realized - Net Invested) / Net Invested"
+              >
+                <Info className="h-3.5 w-3.5 text-slate-400" />
+              </div>
+            </div>
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
+              <Percent className="h-4 w-4" />
+            </div>
+          </div>
+          <div
+            className={`mt-2 text-2xl font-extrabold tracking-tight font-mono ${
+              isSimplePositive ? "text-emerald-400" : "text-rose-400"
+            }`}
+          >
+            {formatPercent(simpleReturn)}
+          </div>
+          <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
+            <span>Total Gain:</span>
+            <span
+              className={`font-mono font-semibold ${
+                summary.totalReturnAmount >= 0 ? "text-emerald-400" : "text-rose-400"
+              }`}
+            >
+              {formatCurrency(summary.totalReturnAmount, { showPlusSign: true })}
+            </span>
+          </div>
+        </div>
+
+        {/* Card 3: Time-Weighted Return (TWR) */}
         <div className="group relative rounded-2xl border border-blue-500/30 bg-gradient-to-b from-blue-950/30 to-slate-900/90 p-5 shadow-lg shadow-blue-500/5 hover:border-blue-500/50 transition">
           <div className="flex items-center justify-between text-slate-400 text-xs">
             <div className="flex items-center gap-1">
-              <span className="font-medium text-blue-300">Time-Weighted Return (TWR)</span>
+              <span className="font-medium text-blue-300">Time-Weighted (TWR)</span>
               <div
                 className="group/tooltip relative cursor-help"
                 title="TWR eliminates the distorting effect of cash deposits & withdrawals to measure true investment skill"
@@ -175,14 +233,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         </div>
 
-        {/* Card 3: Money-Weighted Return (XIRR) */}
+        {/* Card 4: Money-Weighted Return (XIRR) */}
         <div className="group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
           <div className="flex items-center justify-between text-slate-400 text-xs">
             <div className="flex items-center gap-1">
               <span className="font-medium">Money-Weighted (XIRR)</span>
               <div
                 className="group/tooltip relative cursor-help"
-                title="XIRR measures actual dollar performance taking into account the exact timing and size of every deposit"
+                title="XIRR measures actual personal dollar performance taking into account the exact timing and size of every deposit"
               >
                 <Info className="h-3.5 w-3.5 text-slate-400" />
               </div>
@@ -201,15 +259,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
             <span>Net Invested:</span>
             <span className="font-mono font-semibold text-slate-200">
-              {formatCurrency(summary.totalDeposits > 0 ? summary.totalDeposits : summary.netInvestedCapital)}
+              {formatCurrency(netInvested)}
             </span>
           </div>
         </div>
 
-        {/* Card 4: Total Gains & Dividends */}
+        {/* Card 5: Unrealized Gains & Dividends */}
         <div className="group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
           <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span className="font-medium">Unrealized & Total Gain</span>
+            <span className="font-medium">Unrealized Capital Gain</span>
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
               <Award className="h-4 w-4" />
             </div>

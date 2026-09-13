@@ -97,9 +97,9 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
       }
 
       setParsedResult(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Spreadsheet parsing error:", err);
-      setUploadError(err.message || "Failed to read or parse this spreadsheet file.");
+      setUploadError(err instanceof Error ? err.message : "Failed to read or parse this spreadsheet file.");
     } finally {
       setIsUploading(false);
     }
@@ -130,9 +130,9 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
       }
 
       setParsedResult(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Pasted text parsing error:", err);
-      setUploadError(err.message || "Failed to parse pasted statement text.");
+      setUploadError(err instanceof Error ? err.message : "Failed to parse pasted statement text.");
     } finally {
       setIsUploading(false);
     }

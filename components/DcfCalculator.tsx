@@ -191,9 +191,9 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
         data.financialData.historicalEpsGrowth || 12,
         data.financialData.trailingPE || 22
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to load DCF data:", err);
-      setError(err?.message || "Failed to load financial data. Please check ticker.");
+      setError(err instanceof Error ? err.message : "Failed to load financial data. Please check ticker.");
     } finally {
       setIsLoading(false);
     }

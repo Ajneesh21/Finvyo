@@ -71,6 +71,7 @@ export interface DailyPortfolioPoint {
   holdingsValue: number;
   unrealizedPnL: number;
   cumulativeTWR: number; // Time weighted return % to date (e.g. 25.4)
+  simpleReturn?: number; // Simple return % on invested capital to date (e.g. 14.2)
   // Benchmark values normalized to same starting basis %
   sp500TWR?: number;
   nasdaqTWR?: number;
@@ -90,6 +91,7 @@ export interface BenchmarkMetrics {
   sharpeRatio: number;
   maxDrawdown: number;
   hypotheticalDCAValue: number; // What if user DCA'd into this index instead
+  isEstimated?: boolean; // True if calculated using fallback offline estimates
 }
 
 export interface PortfolioSummary {
@@ -101,6 +103,7 @@ export interface PortfolioSummary {
   holdingsValue: number;
   totalReturnAmount: number;
   totalReturnPercent: number;
+  simpleReturnPercent?: number; // Simple / Absolute Return %
   unrealizedPnL: number;
   unrealizedPnLPercent: number;
   realizedPnL: number;

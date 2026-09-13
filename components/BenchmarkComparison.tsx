@@ -67,9 +67,16 @@ export const BenchmarkComparison: React.FC<BenchmarkComparisonProps> = ({
               {/* Card Top */}
               <div className="flex items-start justify-between">
                 <div>
-                  <span className="text-[11px] font-mono text-slate-400">
-                    {bm.symbol}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {bm.symbol}
+                    </span>
+                    {bm.isEstimated && (
+                      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-amber-400 border border-amber-500/30">
+                        Estimated (Offline)
+                      </span>
+                    )}
+                  </div>
                   <h4 className="text-sm font-bold text-white">{bm.name}</h4>
                 </div>
                 <div

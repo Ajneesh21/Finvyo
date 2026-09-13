@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import { parseVestedStatementText, parseVestedXlsxBuffer } from "@/lib/pdf-parser";
 import { parseVestedSpreadsheetSheets } from "@/lib/vested-sheet-parser";
 import * as XLSX from "xlsx";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export const dynamic = "force-dynamic";
 
@@ -46,24 +46,32 @@ export async function POST(req: NextRequest) {
 
     // 1. If Apple Numbers (.numbers) file
     if (fileName.endsWith(".numbers")) {
+      if (process.platform !== "darwin") {
+        return NextResponse.json(
+          {
+            error:
+              "Apple Numbers (.numbers) file parsing is only supported in a macOS environment. Please export and upload your statement in Excel (.xlsx) format from Vested.",
+          },
+          { status: 400 }
+        );
+      }
+
       try {
-        const tempId = `numbers-${Date.now()}`;
+        const tempId = `numbers-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const tempFilePath = path.join("/tmp", `${tempId}.numbers`);
         const tempCsvDir = path.join("/tmp", `${tempId}-csv`);
 
         fs.writeFileSync(tempFilePath, buffer);
 
-        // Export via AppleScript on macOS
-        const appleScript = `
-          tell application "Numbers"
-            open POSIX file "${tempFilePath}"
-            set doc to front document
-            export doc to POSIX file "${tempCsvDir}" as CSV
-            close doc saving no
-          end tell
-        `;
+        // Export via AppleScript on macOS safely using execFile without shell interpolation
+        const appleScript = `tell application "Numbers"
+open POSIX file "${tempFilePath}"
+set doc to front document
+export doc to POSIX file "${tempCsvDir}" as CSV
+close doc saving no
+end tell`;
 
-        await execAsync(`osascript -e '${appleScript.replace(/'/g, "'\\''")}'`);
+        await execFileAsync("osascript", ["-e", appleScript], { timeout: 10000 });
 
         const sheetMap: Record<string, string> = {};
         if (fs.existsSync(tempCsvDir)) {
@@ -87,8 +95,9 @@ export async function POST(req: NextRequest) {
           const result = parseVestedSpreadsheetSheets(sheetMap);
           return NextResponse.json(result);
         }
-      } catch (err: any) {
-        console.error("[Numbers File Parse Error]:", err);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[Numbers File Parse Error]:", msg);
       }
     }
 
@@ -106,7 +115,7 @@ export async function POST(req: NextRequest) {
         if (result.success && result.transactions.length > 0) {
           return NextResponse.json(result);
         }
-      } catch (err) {
+      } catch {
         // Fallback to single sheet parser
       }
 
@@ -140,10 +149,11 @@ export async function POST(req: NextRequest) {
       },
       { status: 400 }
     );
-  } catch (err: any) {
-    console.error("[Statement Upload Route Error]:", err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[Statement Upload Route Error]:", message);
     return NextResponse.json(
-      { error: "Failed to process statement file", details: err?.message },
+      { error: "Failed to process statement file", details: message },
       { status: 500 }
     );
   }

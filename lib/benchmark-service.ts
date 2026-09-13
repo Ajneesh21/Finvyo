@@ -199,5 +199,6 @@ function generateFallbackBenchmark(
     sharpeRatio: 1.15,
     maxDrawdown: 14.5,
     hypotheticalDCAValue: 24500,
+    isEstimated: true,
   };
 }

@@ -1,4 +1,4 @@
-import { SubPeriodReturn } from "./types";
+import { SubPeriodReturn, DailyPortfolioPoint } from "./types";
 
 export interface CashFlowEvent {
   date: string;
@@ -217,3 +217,105 @@ export function calculateDailyTWRSeries(
     };
   });
 }
+
+/**
+ * Maps sub-period TWR compounding onto the timeline so that every intermediate point
+ * represents the true cumulative TWR up to that day, and the final point strictly
+ * matches the portfolio's total twrPercent.
+ */
+export function alignTimelineTWRSeries(
+  timeline: DailyPortfolioPoint[],
+  subPeriods: SubPeriodReturn[],
+  finalTwrPercent: number,
+  cashFlows: CashFlowEvent[] = []
+): void {
+  if (!timeline || timeline.length === 0) return;
+
+  if (timeline.length === 1) {
+    timeline[0].cumulativeTWR = Number(finalTwrPercent.toFixed(2));
+    return;
+  }
+
+  // If there are no sub-periods, compute simple growth relative to starting value
+  if (!subPeriods || subPeriods.length === 0) {
+    const startVal =
+      timeline[0].portfolioValue > 0
+        ? timeline[0].portfolioValue
+        : timeline[0].netInvestedCapital;
+
+    for (let i = 0; i < timeline.length - 1; i++) {
+      if (i === 0) {
+        timeline[i].cumulativeTWR = 0;
+      } else {
+        const val = timeline[i].portfolioValue;
+        const ret = startVal > 0 ? ((val - startVal) / startVal) * 100 : 0;
+        timeline[i].cumulativeTWR = Number(ret.toFixed(2));
+      }
+    }
+    timeline[timeline.length - 1].cumulativeTWR = Number(finalTwrPercent.toFixed(2));
+    return;
+  }
+
+  const cashFlowsByDate = new Map<string, number>();
+  cashFlows.forEach((cf) => {
+    const cur = cashFlowsByDate.get(cf.date) || 0;
+    cashFlowsByDate.set(cf.date, cur + cf.amount);
+  });
+
+  // Calculate compound factors at the start of each sub-period
+  // Sub-period 0 starts with CF = 1.0
+  const subPeriodStartCF: number[] = [1.0];
+  let curCF = 1.0;
+  for (let s = 0; s < subPeriods.length; s++) {
+    const pRet = subPeriods[s].periodReturn / 100;
+    curCF *= Math.max(0, 1 + pRet);
+    subPeriodStartCF.push(curCF);
+  }
+
+  // For each timeline point, find which sub-period it falls in
+  timeline[0].cumulativeTWR = 0;
+
+  for (let i = 1; i < timeline.length - 1; i++) {
+    const pt = timeline[i];
+    const dateStr = pt.date;
+
+    // Find active sub-period: where dateStr <= subPeriods[s].endDate
+    let subIdx = -1;
+    for (let s = 0; s < subPeriods.length; s++) {
+      if (dateStr <= subPeriods[s].endDate) {
+        subIdx = s;
+        break;
+      }
+    }
+
+    if (subIdx === -1) {
+      // Past all sub-periods
+      timeline[i].cumulativeTWR = Number(finalTwrPercent.toFixed(2));
+      continue;
+    }
+
+    const sp = subPeriods[subIdx];
+    const baseCF = subPeriodStartCF[subIdx];
+    const startVal = sp.startValue;
+
+    if (startVal <= 0) {
+      timeline[i].cumulativeTWR = Number(((baseCF - 1) * 100).toFixed(2));
+      continue;
+    }
+
+    // If dateStr is exactly the endDate of the sub-period, subtract flow on that date (pre-flow valuation)
+    let valPre = pt.portfolioValue;
+    if (dateStr === sp.endDate) {
+      const flow = cashFlowsByDate.get(dateStr) || 0;
+      valPre = pt.portfolioValue - flow;
+    }
+
+    const periodRet = (valPre - startVal) / startVal;
+    const factor = baseCF * Math.max(0, 1 + periodRet);
+    timeline[i].cumulativeTWR = Number(((factor - 1) * 100).toFixed(2));
+  }
+
+  // Strictly enforce that the final timeline point matches finalTwrPercent
+  timeline[timeline.length - 1].cumulativeTWR = Number(finalTwrPercent.toFixed(2));
+}
+

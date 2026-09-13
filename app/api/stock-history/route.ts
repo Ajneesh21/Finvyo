@@ -11,9 +11,9 @@ export async function GET(req: NextRequest) {
   try {
     const history = await getStockDailyHistory(symbol, startDate);
     return NextResponse.json({ symbol, history });
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json(
-      { error: "Error fetching stock history", details: err?.message },
+      { error: "Error fetching stock history", details: err instanceof Error ? err.message : String(err) },
       { status: 500 }
     );
   }

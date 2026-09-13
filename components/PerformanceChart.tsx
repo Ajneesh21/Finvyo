@@ -14,14 +14,14 @@ import {
 } from "recharts";
 import { DailyPortfolioPoint } from "@/lib/types";
 import { formatCurrency, formatPercent, formatDate } from "@/lib/utils";
-import { TrendingUp, DollarSign } from "lucide-react";
+import { TrendingUp, DollarSign, Percent } from "lucide-react";
 
 interface PerformanceChartProps {
   timeline: DailyPortfolioPoint[];
 }
 
 type Timeframe = "1M" | "3M" | "6M" | "1Y" | "YTD" | "ALL";
-type ChartMode = "value" | "twr";
+type ChartMode = "value" | "twr" | "simple";
 
 export const PerformanceChart: React.FC<PerformanceChartProps> = ({
   timeline,
@@ -101,30 +101,68 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
     <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-5 shadow-xl shadow-black/20 space-y-4">
       {/* Chart Header Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {/* Mode Selector Tabs */}
-        <div className="flex items-center gap-1 rounded-xl bg-slate-950/80 p-1 border border-slate-800">
-          <button
-            onClick={() => setChartMode("twr")}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-              chartMode === "twr"
-                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            <TrendingUp className="h-3.5 w-3.5" />
-            <span>TWR vs Global Indices (%)</span>
-          </button>
-          <button
-            onClick={() => setChartMode("value")}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-              chartMode === "value"
-                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            <DollarSign className="h-3.5 w-3.5" />
-            <span>Portfolio Valuation ($)</span>
-          </button>
+        {/* Mode Selector Tabs & Current Metric Badge */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 rounded-xl bg-slate-950/80 p-1 border border-slate-800">
+            <button
+              onClick={() => setChartMode("twr")}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                chartMode === "twr"
+                  ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <TrendingUp className="h-3.5 w-3.5" />
+              <span>TWR vs Indices (%)</span>
+            </button>
+            <button
+              onClick={() => setChartMode("simple")}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                chartMode === "simple"
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Percent className="h-3.5 w-3.5" />
+              <span>Simple Return (%)</span>
+            </button>
+            <button
+              onClick={() => setChartMode("value")}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                chartMode === "value"
+                  ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <DollarSign className="h-3.5 w-3.5" />
+              <span>Portfolio Valuation ($)</span>
+            </button>
+          </div>
+
+          {filteredData.length > 0 && (
+            <div className="hidden items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1 text-xs font-mono sm:flex">
+              <span className="text-slate-500">Current:</span>
+              <span
+                className={`font-bold ${
+                  chartMode === "twr"
+                    ? (filteredData[filteredData.length - 1].cumulativeTWR ?? 0) >= 0
+                      ? "text-emerald-400"
+                      : "text-rose-400"
+                    : chartMode === "simple"
+                    ? ((filteredData[filteredData.length - 1].simpleReturn ?? filteredData[filteredData.length - 1].cumulativeTWR) ?? 0) >= 0
+                      ? "text-emerald-400"
+                      : "text-rose-400"
+                    : "text-blue-400"
+                }`}
+              >
+                {chartMode === "twr"
+                  ? formatPercent(filteredData[filteredData.length - 1].cumulativeTWR)
+                  : chartMode === "simple"
+                  ? formatPercent(filteredData[filteredData.length - 1].simpleReturn ?? filteredData[filteredData.length - 1].cumulativeTWR)
+                  : formatCurrency(filteredData[filteredData.length - 1].portfolioValue)}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Timeframe Selector Pills */}
@@ -146,7 +184,7 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
       </div>
 
       {/* Benchmark Toggles */}
-      {chartMode === "twr" && (
+      {chartMode !== "value" && (
         <div className="flex flex-wrap items-center gap-2 pt-1 text-xs border-t border-slate-800/60">
           <span className="text-slate-400 font-medium mr-1 text-[11px] uppercase tracking-wider">
             Compare Indices:
@@ -361,15 +399,20 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
                 }}
               />
 
-              {/* Portfolio Return (Bold Blue Line) */}
+              {/* Portfolio Return (Bold Line) */}
               <Line
                 type="monotone"
-                dataKey="cumulativeTWR"
-                name="Portfolio (TWR %)"
-                stroke="#3b82f6"
+                dataKey={chartMode === "simple" ? "simpleReturn" : "cumulativeTWR"}
+                name={chartMode === "simple" ? "Portfolio (Simple Return %)" : "Portfolio (TWR %)"}
+                stroke={chartMode === "simple" ? "#10b981" : "#3b82f6"}
                 strokeWidth={3}
                 dot={false}
-                activeDot={{ r: 6, fill: "#3b82f6", stroke: "#ffffff", strokeWidth: 2 }}
+                activeDot={{
+                  r: 6,
+                  fill: chartMode === "simple" ? "#10b981" : "#3b82f6",
+                  stroke: "#ffffff",
+                  strokeWidth: 2,
+                }}
               />
 
               {/* S&P 500 */}
