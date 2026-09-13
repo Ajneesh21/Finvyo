@@ -28,3 +28,12 @@ yarn-error.log*
 # Docker volumes
 docker-data/
 data/
+
+# TypeScript build cache (regenerated on every build)
+tsconfig.tsbuildinfo
+
+# Personal transaction data — never commit real financial statements
+Transactions*.xlsx
+Transactions*.csv
+Transactions*.csv/
+Transactions*.numbers
