@@ -114,16 +114,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(result);
     }
 
-    // 3. If CSV or text file
-    if (fileName.endsWith(".csv") || fileName.endsWith(".txt")) {
+    // 3. If user uploaded a CSV file, explicitly prompt them to use XLSX
+    if (fileName.endsWith(".csv")) {
+      return NextResponse.json(
+        {
+          error:
+            "CSV format is not supported because Vested CSV exports lack critical multi-sheet transaction and lot details. Please download and upload the Excel (.xlsx) statement from Vested.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // 4. If plain text file
+    if (fileName.endsWith(".txt")) {
       const text = buffer.toString("utf-8");
-
-      // Try multi-sheet or single sheet CSV
-      const result = parseVestedSpreadsheetSheets({ "Transactions.csv": text });
-      if (result.success && result.transactions.length > 0) {
-        return NextResponse.json(result);
-      }
-
       const parsedTextResult = parseVestedStatementText(text);
       return NextResponse.json(parsedTextResult);
     }
@@ -132,7 +136,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Please upload an Excel (.xlsx, .xls), Apple Numbers (.numbers), or CSV file.",
+          "Unsupported file format. Please download and upload your statement in Excel (.xlsx) format from Vested.",
       },
       { status: 400 }
     );

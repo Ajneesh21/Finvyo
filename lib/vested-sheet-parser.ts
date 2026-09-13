@@ -1,8 +1,5 @@
-import fs from "fs";
-import path from "path";
 import { Transaction, ParsedPdfResult } from "./types";
 import { normalizeDateString } from "./pdf-parser";
-import * as XLSX from "xlsx";
 
 /**
  * Parses multi-sheet Vested export (from Numbers, Excel XLSX, or folder of CSVs)

@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import { Transaction } from "./types";
-import { SAMPLE_VESTED_TRANSACTIONS } from "./sample-data";
 import { getCachedData, setCachedData, deleteCachedData } from "./redis";
 
 export interface StoredPortfolio {
@@ -70,6 +69,15 @@ export async function savePortfolio(
       map = JSON.parse(raw);
     }
 
+    // If setting isDefault to true, ensure others are set to false
+    if (portfolio.isDefault) {
+      for (const k of Object.keys(map)) {
+        if (k !== portfolio.id) {
+          map[k].isDefault = false;
+        }
+      }
+    }
+
     map[portfolio.id] = {
       ...portfolio,
       updatedAt: new Date().toISOString(),
@@ -94,10 +102,11 @@ export async function deletePortfolio(id: string): Promise<boolean> {
       if (map[id]) {
         delete map[id];
         fs.writeFileSync(STORAGE_FILE, JSON.stringify(map, null, 2), "utf-8");
-        await setCachedData("portfolios:all", Object.values(map), 60);
+        await deleteCachedData("portfolios:all");
         return true;
       }
     }
+    await deleteCachedData("portfolios:all");
   } catch (err) {
     console.error("[Storage] Error deleting portfolio:", err);
   }

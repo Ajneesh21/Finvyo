@@ -3,12 +3,9 @@
 import React from "react";
 import {
   TrendingUp,
-  DollarSign,
-  PieChart,
   ArrowUpRight,
   ArrowDownRight,
   Info,
-  Calendar,
   Wallet,
   Activity,
   Award,
@@ -24,7 +21,6 @@ interface DashboardOverviewProps {
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   summary,
 }) => {
-  const isTotalGainPositive = summary.totalReturnAmount >= 0;
   const isTwrPositive = summary.twrPercent >= 0;
   const isXirrPositive = summary.xirrPercent >= 0;
   const isUnrealizedPositive = summary.unrealizedPnL >= 0;

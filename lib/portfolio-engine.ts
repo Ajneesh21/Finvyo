@@ -9,7 +9,7 @@ import {
 import { getTickerSector } from "./utils";
 import { calculateTWR, CashFlowEvent } from "./twr-calculator";
 import { calculateXIRR } from "./xirr-calculator";
-import { getMultipleStockQuotes, getStockDailyHistory, HistoricalPricePoint } from "./stock-api";
+import { getMultipleStockQuotes, getStockDailyHistory } from "./stock-api";
 import { computeBenchmarkMetrics } from "./benchmark-service";
 
 interface BuyLot {
@@ -39,11 +39,8 @@ export async function computePortfolioSummary(
     a.date.localeCompare(b.date)
   );
 
-  // First stock purchase date
-  const firstStockBuyTx = sortedTx.find(
-    (t) => t.type === "BUY" && t.symbol !== "CASH" && t.symbol !== "USD"
-  );
-  const firstTransactionDate = (firstStockBuyTx ? firstStockBuyTx.date : sortedTx[0].date).split("T")[0];
+  // First transaction date represents account inception
+  const firstTransactionDate = sortedTx[0].date.split("T")[0];
   const lastTransactionDate =
     sortedTx[sortedTx.length - 1].date.split("T")[0] > new Date().toISOString().split("T")[0]
       ? sortedTx[sortedTx.length - 1].date.split("T")[0]
@@ -86,7 +83,9 @@ export async function computePortfolioSummary(
     const symbol = tx.symbol.trim().toUpperCase();
     const type = tx.type;
     const fee = tx.fee || 0;
-    totalFees += fee;
+    if (type !== "FEE" && type !== "TAX" && type !== "STOCK_SPLIT") {
+      totalFees += fee;
+    }
 
     if (type === "DEPOSIT") {
       const dep = Math.abs(tx.amount || tx.price * (tx.shares || 1));
@@ -152,55 +151,90 @@ export async function computePortfolioSummary(
 
       let remainingToSell = sharesToSell;
       let totalCostOfSoldShares = 0;
-      let oldestBuyDate = tx.date;
 
       while (remainingToSell > 0.00001 && pos.buyLots.length > 0) {
         const lot = pos.buyLots[0];
-        if (lot.date < oldestBuyDate) oldestBuyDate = lot.date;
+        const lotSharesSold = Math.min(lot.shares, remainingToSell);
+        const lotCost = lotSharesSold * lot.price;
+        const lotProceeds = lotSharesSold * sellPrice;
+        const lotFee = sharesToSell > 0 ? (lotSharesSold / sharesToSell) * fee : 0;
+        const lotGain = lotProceeds - lotCost - lotFee;
 
-        if (lot.shares <= remainingToSell + 0.00001) {
-          totalCostOfSoldShares += lot.shares * lot.price;
-          remainingToSell -= lot.shares;
+        totalCostOfSoldShares += lotCost;
+        remainingToSell -= lotSharesSold;
+        lot.shares -= lotSharesSold;
+        if (lot.shares <= 0.00001) {
           pos.buyLots.shift();
-        } else {
-          totalCostOfSoldShares += remainingToSell * lot.price;
-          lot.shares -= remainingToSell;
-          remainingToSell = 0;
         }
+
+        const d1 = new Date(lot.date).getTime();
+        const d2 = new Date(tx.date).getTime();
+        const holdingDays = Math.max(1, Math.floor((d2 - d1) / (1000 * 86400)));
+
+        realizedTrades.push({
+          id: `rt-${realizedTrades.length + 1}`,
+          symbol,
+          sellDate: tx.date,
+          shares: Number(lotSharesSold.toFixed(4)),
+          sellPrice,
+          costBasis: Number(lotCost.toFixed(2)),
+          realizedGain: Number(lotGain.toFixed(2)),
+          realizedGainPercent:
+            lotCost > 0 ? Number(((lotGain / lotCost) * 100).toFixed(2)) : 0,
+          holdingPeriodDays: holdingDays,
+          taxType: holdingDays > 730 ? "LONG_TERM" : "SHORT_TERM",
+        });
       }
 
-      if (remainingToSell > 0.00001 && totalCostOfSoldShares === 0) {
-        totalCostOfSoldShares = proceeds * 0.95;
+      if (remainingToSell > 0.00001) {
+        // No matching buy lots found for these shares (e.g. imported CSV missing history).
+        // Assume zero realized gain rather than fabricating a cost basis with an arbitrary
+        // multiplier. The user should reconcile missing buy history separately.
+        const lotCost = remainingToSell * sellPrice; // cost = proceeds → gain = 0
+        const lotProceeds = remainingToSell * sellPrice;
+        const lotGain = 0;
+        totalCostOfSoldShares += lotCost;
+
+        realizedTrades.push({
+          id: `rt-${realizedTrades.length + 1}`,
+          symbol,
+          sellDate: tx.date,
+          shares: Number(remainingToSell.toFixed(4)),
+          sellPrice,
+          costBasis: Number(lotCost.toFixed(2)),
+          realizedGain: Number(lotGain.toFixed(2)),
+          realizedGainPercent: 0,
+          holdingPeriodDays: 1,
+          taxType: "SHORT_TERM",
+        });
+        remainingToSell = 0;
       }
 
       pos.shares = Math.max(0, pos.shares - sharesToSell);
 
       const realizedGain = proceeds - totalCostOfSoldShares - fee;
       totalRealizedPnL += realizedGain;
-
-      const d1 = new Date(oldestBuyDate).getTime();
-      const d2 = new Date(tx.date).getTime();
-      const holdingDays = Math.max(1, Math.floor((d2 - d1) / (1000 * 86400)));
-
-      realizedTrades.push({
-        id: `rt-${realizedTrades.length + 1}`,
-        symbol,
-        sellDate: tx.date,
-        shares: sharesToSell,
-        sellPrice: proceeds / (sharesToSell || 1),
-        costBasis: totalCostOfSoldShares,
-        realizedGain,
-        realizedGainPercent:
-          totalCostOfSoldShares > 0
-            ? (realizedGain / totalCostOfSoldShares) * 100
-            : 0,
-        holdingPeriodDays: holdingDays,
-        taxType: holdingDays > 730 ? "LONG_TERM" : "SHORT_TERM",
-      });
     } else if (type === "FEE" || type === "TAX") {
       const amt = Math.abs(tx.amount || fee);
       totalFees += amt;
       cashBalance -= amt;
+    } else if (type === "STOCK_SPLIT") {
+      // tx.shares encodes the split multiplier:
+      //   2.0  → two-for-one (share count doubles, price per share halves)
+      //   0.5  → one-for-two reverse split (share count halves, price per share doubles)
+      // No cash impact. Total cost basis is unchanged; per-share cost adjusts inversely.
+      const multiplier = Math.abs(tx.shares) || 1;
+      if (holdingsMap.has(symbol)) {
+        const pos = holdingsMap.get(symbol)!;
+        pos.shares = pos.shares * multiplier;
+        pos.totalBoughtShares = pos.totalBoughtShares * multiplier;
+        // Adjust each lot: more shares at a proportionally lower per-share cost
+        pos.buyLots.forEach((lot) => {
+          lot.shares = lot.shares * multiplier;
+          lot.price = lot.price / multiplier; // per-share cost scales inversely
+        });
+        // pos.totalBoughtCost stays the same (total dollars invested is unchanged)
+      }
     }
   }
 
@@ -220,7 +254,7 @@ export async function computePortfolioSummary(
         ? pos.buyLots[0].price
         : pos.totalBoughtShares > 0
         ? pos.totalBoughtCost / pos.totalBoughtShares
-        : 100;
+        : 0; // No cost data — use 0 rather than fabricating a $100 price
 
     const currentPrice = livePrice && livePrice > 0 ? livePrice : fallbackBuyPrice;
     const currentValue = pos.shares * currentPrice;
@@ -301,7 +335,7 @@ export async function computePortfolioSummary(
   const totalReturnPercent =
     netInvestedCapital > 0 ? (totalReturnAmount / netInvestedCapital) * 100 : 0;
 
-  // 3. Exact TWR of the invested stocks over holding period
+  // 3. Transactions for timeline and cash flows
   const stockBuyTxList = sortedTx.filter(
     (t) => t.date >= firstTransactionDate && (t.type === "BUY" || t.type === "SELL")
   );
@@ -310,8 +344,6 @@ export async function computePortfolioSummary(
     totalCostBasis > 0
       ? ((totalHoldingsValue + totalRealizedPnL + totalDividends - totalCostBasis) / totalCostBasis) * 100
       : 0;
-
-  const twrPercent = Number(stockGrowthReturn.toFixed(2));
 
   // 4. Daily Timeline from first stock buy date with Real Market Fluctuations
   const timeline = await generatePortfolioTimeline(
@@ -322,20 +354,56 @@ export async function computePortfolioSummary(
     totalHoldingsValue,
     totalCostBasis,
     quotes,
-    twrPercent
+    Number(stockGrowthReturn.toFixed(2))
   );
 
-  // Compute annualized CAGR
+  // Compute days and years active
   const dStart = new Date(firstTransactionDate).getTime();
   const dEnd = new Date(lastTransactionDate).getTime();
   const daysActive = Math.max(1, Math.floor((dEnd - dStart) / (1000 * 86400)));
   const years = Math.max(daysActive / 365.25, 0.05);
 
-  const annualizedTwrPercent = Number(
-    ((Math.pow(1 + twrPercent / 100, 1 / years) - 1) * 100).toFixed(2)
+  // 5. Daily Cash-Flow-Adjusted TWR using end-of-day valuations and external capital flows
+  const dailyValuations = new Map<string, number>();
+  for (const pt of timeline) {
+    dailyValuations.set(pt.date, pt.portfolioValue);
+  }
+
+  const externalDepositsWithdrawals: CashFlowEvent[] = sortedTx
+    .filter((t) => t.type === "DEPOSIT" || t.type === "WITHDRAWAL")
+    .map((t) => ({
+      date: t.date.split("T")[0],
+      amount:
+        t.type === "DEPOSIT"
+          ? Math.abs(t.amount || t.price * (t.shares || 1))
+          : -Math.abs(t.amount || t.price * (t.shares || 1)),
+      description: t.type,
+    }));
+
+  // Only DEPOSIT / WITHDRAWAL events are valid TWR cash-flow boundaries.
+  // BUY / SELL are internal reallocations within the portfolio and must NOT split
+  // TWR sub-periods — treating them as external flows would suppress or inflate the
+  // measured return by breaking periods at arbitrary internal trade dates.
+  const effectiveTwrFlows: CashFlowEvent[] = externalDepositsWithdrawals;
+
+  const twrResult = calculateTWR(
+    effectiveTwrFlows,
+    dailyValuations,
+    firstTransactionDate,
+    lastTransactionDate
   );
 
-  // 5. Money-Weighted Return (XIRR)
+  const twrPercent =
+    twrResult.subPeriods.length > 0
+      ? Number(twrResult.cumulativeTwrPercent.toFixed(2))
+      : Number(stockGrowthReturn.toFixed(2));
+
+  const annualizedTwrPercent =
+    twrResult.subPeriods.length > 0
+      ? Number(twrResult.annualizedTwrPercent.toFixed(2))
+      : Number(((Math.pow(1 + twrPercent / 100, 1 / years) - 1) * 100).toFixed(2));
+
+  // 6. Money-Weighted Return (XIRR)
   const xirrCashFlows = [
     ...stockBuyTxList.map((t) => ({
       date: t.date,
@@ -350,7 +418,7 @@ export async function computePortfolioSummary(
   const rawXirr = calculateXIRR(xirrCashFlows);
   const xirrPercent = !isNaN(rawXirr) && isFinite(rawXirr) ? Number(rawXirr.toFixed(2)) : twrPercent;
 
-  // 6. Compute Benchmark Comparisons from first stock purchase date
+  // 7. Compute Benchmark Comparisons from first stock purchase date
   const benchmarks = await computeBenchmarkMetrics(
     timeline,
     firstTransactionDate,
@@ -392,17 +460,20 @@ export async function computePortfolioSummary(
     holdings,
     realizedTrades,
     timeline,
-    twrSubPeriods: [
-      {
-        startDate: firstTransactionDate,
-        endDate: lastTransactionDate,
-        startValue: totalCostBasis,
-        endValue: totalHoldingsValue,
-        cashFlow: 0,
-        periodReturn: twrPercent / 100,
-        cumulativeTWR: twrPercent / 100,
-      },
-    ],
+    twrSubPeriods:
+      twrResult.subPeriods.length > 0
+        ? twrResult.subPeriods
+        : [
+            {
+              startDate: firstTransactionDate,
+              endDate: lastTransactionDate,
+              startValue: totalCostBasis,
+              endValue: totalHoldingsValue,
+              cashFlow: 0,
+              periodReturn: twrPercent / 100,
+              cumulativeTWR: twrPercent / 100,
+            },
+          ],
     benchmarks,
   };
 }
@@ -435,16 +506,23 @@ async function generatePortfolioTimeline(
       getStockDailyHistory("URTH", startDateStr),
     ]);
 
-  // Also fetch daily history for the top held stocks (e.g. META, NFLX, UBER)
+  // Also fetch daily history for the top held stocks with concurrency limiting (chunk size 4)
   const heldSymbols = holdings.map((h) => h.symbol);
   const stockHistories: Record<string, Map<string, number>> = {};
+  const CHUNK_SIZE = 4;
 
-  await Promise.all(
-    heldSymbols.map(async (sym) => {
-      const hist = await getStockDailyHistory(sym, startDateStr);
-      stockHistories[sym] = new Map(hist.map((p) => [p.date, p.close]));
-    })
-  );
+  for (let i = 0; i < heldSymbols.length; i += CHUNK_SIZE) {
+    const chunk = heldSymbols.slice(i, i + CHUNK_SIZE);
+    await Promise.all(
+      chunk.map(async (sym) => {
+        // useAdjustedPrices=false: dividends for held stocks are tracked as explicit DIVIDEND
+        // transactions and added to cashBalance. Using adjusted prices here would count
+        // dividend income twice — once via the adjusted price series and once via cash.
+        const hist = await getStockDailyHistory(sym, startDateStr, false);
+        stockHistories[sym] = new Map(hist.map((p) => [p.date, p.close]));
+      })
+    );
+  }
 
   const spMap = new Map(sp500History.map((p) => [p.date, p.close]));
   const ndxMap = new Map(nasdaqHistory.map((p) => [p.date, p.close]));
@@ -464,35 +542,84 @@ async function generatePortfolioTimeline(
   let lastKnownDow = dowStart;
   let lastKnownMsci = msciStart;
 
-  // Track last known prices for each held stock
+  // Track last known prices for each held stock.
+  // Seed with the live quote price. If the API failed and returned 0, seed with 0 —
+  // never fall back to an arbitrary $100 which would silently fabricate portfolio value.
+  // Historical prices from stockHistories will overwrite this as they are found.
   const lastKnownStockPrice: Record<string, number> = {};
   heldSymbols.forEach((sym) => {
-    const quotePrice = quotes[sym]?.regularMarketPrice || holdings.find((h) => h.symbol === sym)?.currentPrice || 100;
-    lastKnownStockPrice[sym] = quotePrice;
+    const quotePrice = quotes[sym]?.regularMarketPrice;
+    const holdingPrice = holdings.find((h) => h.symbol === sym)?.currentPrice;
+    lastKnownStockPrice[sym] =
+      quotePrice && quotePrice > 0
+        ? quotePrice
+        : holdingPrice && holdingPrice > 0
+        ? holdingPrice
+        : 0; // 0 = unknown; timeline will use last seen historical price instead
   });
 
   const step = totalDays > 365 ? 3 : totalDays > 90 ? 2 : 1;
   const initialStockCost = Math.max(1, currentCostBasis);
 
+  // Build evaluation dates: regular stepped dates plus every transaction date (so no cash flow date is missed)
+  const evalDateSet = new Set<string>();
+  evalDateSet.add(startDateStr);
+  evalDateSet.add(endDateStr);
+  transactions.forEach((tx) => {
+    const dStr = tx.date.split("T")[0];
+    if (dStr >= startDateStr && dStr <= endDateStr) {
+      evalDateSet.add(dStr);
+    }
+  });
+  for (let i = 0; i <= totalDays; i += step) {
+    const d = new Date(start.getTime() + i * 86400 * 1000);
+    evalDateSet.add(d.toISOString().split("T")[0]);
+  }
+  const evalDates = Array.from(evalDateSet).sort((a, b) => a.localeCompare(b));
+
   // Track cumulative transactions up to date
   let txIdx = 0;
   const runningShares: Record<string, number> = {};
   let runningCost = 0;
+  let runningCash = 0;
+  let cumulativeDeposits = 0;
+  const hasDeposits = transactions.some((t) => t.type === "DEPOSIT" && !t.id.startsWith("tx-init"));
 
-  for (let i = 0; i <= totalDays; i += step) {
-    const d = new Date(start.getTime() + i * 86400 * 1000);
-    const dateStr = d.toISOString().split("T")[0];
-
+  for (const dateStr of evalDates) {
     // Process transactions up to this date
     while (txIdx < transactions.length && transactions[txIdx].date.split("T")[0] <= dateStr) {
       const tx = transactions[txIdx];
       const sym = tx.symbol.trim().toUpperCase();
-      if (tx.type === "BUY" && sym !== "CASH" && sym !== "USD") {
+      const fee = tx.fee || 0;
+
+      if (tx.type === "DEPOSIT") {
+        const dep = Math.abs(tx.amount || tx.price * (tx.shares || 1));
+        runningCash += dep - fee;
+        cumulativeDeposits += dep;
+      } else if (tx.type === "WITHDRAWAL") {
+        const wth = Math.abs(tx.amount || tx.price * (tx.shares || 1));
+        runningCash -= wth + fee;
+        cumulativeDeposits -= wth;
+      } else if (tx.type === "BUY" && sym !== "CASH" && sym !== "USD") {
+        const cost = Math.abs(tx.amount || tx.shares * tx.price);
+        runningCash -= cost + fee;
         runningShares[sym] = (runningShares[sym] || 0) + Math.abs(tx.shares);
-        runningCost += Math.abs(tx.amount || tx.shares * tx.price);
+        runningCost += cost;
       } else if (tx.type === "SELL" && sym !== "CASH" && sym !== "USD") {
+        const proceeds = Math.abs(tx.amount || tx.shares * tx.price);
+        runningCash += proceeds - fee;
         runningShares[sym] = Math.max(0, (runningShares[sym] || 0) - Math.abs(tx.shares));
         runningCost = Math.max(0, runningCost - Math.abs(tx.amount || tx.shares * tx.price));
+      } else if (tx.type === "DIVIDEND") {
+        const div = Math.abs(tx.amount);
+        runningCash += div - fee;
+      } else if (tx.type === "TAX" || tx.type === "FEE") {
+        runningCash -= Math.abs(tx.amount || fee);
+      } else if (tx.type === "STOCK_SPLIT" && sym !== "CASH" && sym !== "USD") {
+        // Adjust the running share count for the split. No cash impact.
+        const multiplier = Math.abs(tx.shares) || 1;
+        runningShares[sym] = (runningShares[sym] || 0) * multiplier;
+        // runningCost is intentionally unchanged — total cost basis is unaffected by splits
       }
       txIdx++;
     }
@@ -510,17 +637,21 @@ async function generatePortfolioTimeline(
       }
     });
 
-    // Compute actual total value of held stocks on this exact day using real stock prices!
+    // Compute total market value of held stocks on this day using real historical prices.
+    // If no price is known for a symbol yet (price = 0), it contributes 0 to the total
+    // rather than a fabricated $100 — the next available historical price will be used.
     let dayHoldingsVal = 0;
     Object.entries(runningShares).forEach(([sym, shares]) => {
       if (shares > 0) {
-        const p = lastKnownStockPrice[sym] || quotes[sym]?.regularMarketPrice || 100;
+        const p = lastKnownStockPrice[sym] || quotes[sym]?.regularMarketPrice || 0;
         dayHoldingsVal += shares * p;
       }
     });
 
-    const portVal = dayHoldingsVal > 0 ? dayHoldingsVal : initialStockCost;
-    const baseCost = runningCost > 0 ? runningCost : initialStockCost;
+    const validCash = Math.max(0, runningCash);
+    const totalAccountVal = dayHoldingsVal + (hasDeposits ? validCash : 0);
+    const portVal = totalAccountVal > 0 ? totalAccountVal : dayHoldingsVal > 0 ? dayHoldingsVal : initialStockCost;
+    const baseCost = hasDeposits && cumulativeDeposits > 0 ? cumulativeDeposits : runningCost > 0 ? runningCost : initialStockCost;
 
     const spPercent =
       spStart > 0 ? ((lastKnownSp - spStart) / spStart) * 100 : 0;
@@ -540,8 +671,8 @@ async function generatePortfolioTimeline(
       date: dateStr,
       portfolioValue: Number(portVal.toFixed(2)),
       netInvestedCapital: Number(baseCost.toFixed(2)),
-      cashBalance: 0,
-      holdingsValue: Number(portVal.toFixed(2)),
+      cashBalance: Number(validCash.toFixed(2)),
+      holdingsValue: Number(dayHoldingsVal.toFixed(2)),
       unrealizedPnL: Number((portVal - baseCost).toFixed(2)),
       cumulativeTWR: Number(portTwr.toFixed(2)),
       sp500TWR: Number(spPercent.toFixed(2)),
@@ -572,14 +703,18 @@ async function generatePortfolioTimeline(
     const msciPercent =
       msciStart > 0 ? ((lastKnownMsci - msciStart) / msciStart) * 100 : 0;
 
+    const finalCash = Math.max(0, runningCash);
+    const finalTotalVal = currentHoldingsValue + (hasDeposits ? finalCash : 0);
+    const finalNetInvested = hasDeposits && cumulativeDeposits > 0 ? cumulativeDeposits : currentCostBasis;
+
     if (last.date < endDateStr) {
       points.push({
         date: endDateStr,
-        portfolioValue: Number(currentHoldingsValue.toFixed(2)),
-        netInvestedCapital: Number(currentCostBasis.toFixed(2)),
-        cashBalance: 0,
+        portfolioValue: Number(finalTotalVal.toFixed(2)),
+        netInvestedCapital: Number(finalNetInvested.toFixed(2)),
+        cashBalance: Number(finalCash.toFixed(2)),
         holdingsValue: Number(currentHoldingsValue.toFixed(2)),
-        unrealizedPnL: Number((currentHoldingsValue - currentCostBasis).toFixed(2)),
+        unrealizedPnL: Number((finalTotalVal - finalNetInvested).toFixed(2)),
         cumulativeTWR: Number(finalReturn.toFixed(2)),
         sp500TWR: Number(spPercent.toFixed(2)),
         nasdaqTWR: Number(ndxPercent.toFixed(2)),
@@ -588,8 +723,11 @@ async function generatePortfolioTimeline(
         msciWorldTWR: Number(msciPercent.toFixed(2)),
       });
     } else {
-      last.portfolioValue = Number(currentHoldingsValue.toFixed(2));
-      last.netInvestedCapital = Number(currentCostBasis.toFixed(2));
+      last.portfolioValue = Number(finalTotalVal.toFixed(2));
+      last.netInvestedCapital = Number(finalNetInvested.toFixed(2));
+      last.cashBalance = Number(finalCash.toFixed(2));
+      last.holdingsValue = Number(currentHoldingsValue.toFixed(2));
+      last.unrealizedPnL = Number((finalTotalVal - finalNetInvested).toFixed(2));
       last.cumulativeTWR = Number(finalReturn.toFixed(2));
     }
   }

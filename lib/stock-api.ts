@@ -5,8 +5,7 @@ import { getTickerSector } from "./utils";
 const QUOTE_CACHE_TTL = 30; // 30 seconds cache for live quotes
 const HISTORY_CACHE_TTL = 12 * 3600; // 12 hours cache for historical close data
 
-const FINNHUB_TOKEN =
-  process.env.FINNHUB_API_KEY || "da6r27hr01qqqkkgs0dgda6r27hr01qqqkkgs0e0";
+const FINNHUB_TOKEN = (process.env.FINNHUB_API_KEY || "").trim();
 
 export const BENCHMARK_SYMBOLS = {
   SP500: { symbol: "^GSPC", altSymbol: "SPY", name: "S&P 500 (US Large Cap)" },
@@ -18,7 +17,7 @@ export const BENCHMARK_SYMBOLS = {
 
 /**
  * Fetch real-time quote for a single symbol.
- * Always queries live Finnhub API for equities and Yahoo Finance for indices.
+ * Queries live Finnhub API (if FINNHUB_API_KEY is configured) or Yahoo Finance.
  */
 export async function getStockQuote(symbol: string): Promise<StockQuote> {
   const cleanSymbol = symbol.trim().toUpperCase();
@@ -42,12 +41,12 @@ export async function getStockQuote(symbol: string): Promise<StockQuote> {
     return cached;
   }
 
-  // 1. For US Equities -> Fetch live from Finnhub API
-  if (!cleanSymbol.startsWith("^")) {
+  // 1. For US Equities -> Fetch live from Finnhub API if token is configured
+  if (!cleanSymbol.startsWith("^") && FINNHUB_TOKEN) {
     try {
       const finnhubUrl = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(
         cleanSymbol
-      )}&token=${FINNHUB_TOKEN}`;
+      )}&token=${encodeURIComponent(FINNHUB_TOKEN)}`;
 
       const res = await fetch(finnhubUrl, {
         headers: { Accept: "application/json" },
@@ -144,12 +143,14 @@ export async function getStockQuote(symbol: string): Promise<StockQuote> {
     console.error(`[Yahoo Finance Error for ${cleanSymbol}]:`, err);
   }
 
-  // Final return with symbol info if API network is completely blocked
+  // All price sources failed. Return 0 so callers can detect the failure and use
+  // their own fallback (e.g., per-lot cost basis). Never fabricate a $100 price.
   const info = getTickerSector(cleanSymbol);
+  console.warn(`[StockAPI] No price available for ${cleanSymbol} — returning 0`);
   return {
     symbol: cleanSymbol,
     shortName: info.name,
-    regularMarketPrice: 100.0,
+    regularMarketPrice: 0,
     regularMarketChange: 0,
     regularMarketChangePercent: 0,
     currency: "USD",
@@ -188,14 +189,22 @@ export interface HistoricalPricePoint {
 }
 
 /**
- * Fetch daily historical prices for a symbol from a start date to today from Yahoo Finance
+ * Fetch daily historical close prices for a symbol from Yahoo Finance.
+ *
+ * @param useAdjustedPrices - When true (default), returns dividend-adjusted close
+ *   prices, which bakes dividend income into the price series (total-return basis).
+ *   Use true for benchmark indices (^GSPC, ^NDX, etc.) where you want total return.
+ *   Use false for portfolio holdings where dividends are tracked as separate DIVIDEND
+ *   transactions — using adjusted prices there would double-count dividend income.
  */
 export async function getStockDailyHistory(
   symbol: string,
-  startDateStr: string
+  startDateStr: string,
+  useAdjustedPrices: boolean = true
 ): Promise<HistoricalPricePoint[]> {
   const cleanSymbol = symbol.trim().toUpperCase();
-  const cacheKey = `history:${cleanSymbol}:${startDateStr}`;
+  // Scope the cache key by adjustment mode so the two variants are stored separately
+  const cacheKey = `history:${cleanSymbol}:${startDateStr}:${useAdjustedPrices ? "adj" : "raw"}`;
 
   const cached = await getCachedData<HistoricalPricePoint[]>(cacheKey);
   if (cached && cached.length > 0) {
@@ -230,7 +239,12 @@ export async function getStockDailyHistory(
       const points: HistoricalPricePoint[] = [];
       for (let i = 0; i < timestamps.length; i++) {
         const d = new Date(timestamps[i] * 1000).toISOString().split("T")[0];
-        const close = adjCloses[i] || closes[i];
+        // For portfolio holdings (useAdjustedPrices=false) always use the raw close
+        // so dividend income is not baked into the price. For benchmarks, use adjclose
+        // to capture total return (price appreciation + reinvested dividends).
+        const close = useAdjustedPrices
+          ? (adjCloses[i] ?? closes[i])
+          : closes[i];
         if (close !== null && typeof close === "number" && !isNaN(close) && close > 0) {
           points.push({ date: d, close: Number(close.toFixed(2)) });
         }
@@ -248,3 +262,4 @@ export async function getStockDailyHistory(
 
   return [];
 }
+

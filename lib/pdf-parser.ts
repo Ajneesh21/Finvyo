@@ -454,10 +454,6 @@ export function parseVestedStatementText(rawText: string): ParsedPdfResult {
   // 3. RECONCILE HOLDINGS: If holdings table was found in PDF, incorporate existing open holdings!
   // Any holding from the Holdings table that wasn't created in the activity transactions is added as an initial holding
   if (extractedHoldings.length > 0) {
-    const activityBoughtSymbols = new Set(
-      transactions.filter((t) => t.type === "BUY").map((t) => t.symbol)
-    );
-
     // Initial deposit transaction date (just before earliest transaction)
     const initDate = getDayBefore(earliestDate);
 

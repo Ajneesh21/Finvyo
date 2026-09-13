@@ -33,7 +33,6 @@ const STOCK_COLORS = [
 
 export const AssetAllocation: React.FC<AssetAllocationProps> = ({
   holdings,
-  cashBalance,
   totalValue,
   layout = "grid",
 }) => {

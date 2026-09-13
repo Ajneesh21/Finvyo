@@ -15,6 +15,7 @@ import { TransactionLedger } from "@/components/TransactionLedger";
 import { MetricsDetail } from "@/components/MetricsDetail";
 import { EditTransactionModal } from "@/components/EditTransactionModal";
 import { DcfCalculator } from "@/components/DcfCalculator";
+import { PortfolioManagerModal } from "@/components/PortfolioManagerModal";
 import {
   TrendingUp,
   Globe,
@@ -47,6 +48,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [isUploadOpen, setIsUploadOpen] = useState<boolean>(false);
+  const [isPortfolioManagerOpen, setIsPortfolioManagerOpen] = useState<boolean>(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>("");
@@ -166,7 +168,7 @@ export default function Home() {
         handleSelectPortfolio(remaining[0].id);
       } else {
         setCurrentPortfolioId("");
-        setPortfolioName("My Portfolio");
+        setPortfolioName("No Portfolio Loaded");
         setTransactions([]);
         setSummary(null);
       }
@@ -184,7 +186,8 @@ export default function Home() {
   // Handle New Transactions Loaded from Spreadsheet Uploader
   const handleTransactionsLoaded = async (
     newTx: Transaction[],
-    name: string
+    name: string,
+    sourceFileName?: string
   ) => {
     const newPortId = `port-${Date.now()}`;
     const newPort: StoredPortfolio = {
@@ -193,6 +196,7 @@ export default function Home() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       transactions: newTx,
+      sourceFileName: sourceFileName || name,
       isDefault: true,
     };
 
@@ -337,14 +341,13 @@ export default function Home() {
         onRefreshPrices={handleRefreshPrices}
         onExportCsv={handleExportCsv}
         isRefreshing={isRefreshing}
-        lastUpdatedTime={lastUpdated}
         portfolioName={portfolioName}
         hasData={transactions.length > 0}
         portfolios={portfolios}
         currentPortfolioId={currentPortfolioId}
-        onSelectPortfolio={handleSelectPortfolio}
         onRenamePortfolio={handleRenamePortfolio}
         onDeletePortfolio={handleDeletePortfolio}
+        onOpenPortfolioManager={() => setIsPortfolioManagerOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -477,7 +480,7 @@ export default function Home() {
                 No Spreadsheet Statement Loaded
               </h3>
               <p className="text-xs text-slate-400 max-w-sm mt-1">
-                Upload your Excel (.xlsx), Apple Numbers (.numbers), or CSV export to analyze your portfolio. Or try the DCF Valuation tab above.
+                Upload your Vested Excel (.xlsx) statement to analyze your portfolio. Or try the DCF Valuation tab above.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -517,6 +520,19 @@ export default function Home() {
         onClose={() => setIsEditModalOpen(false)}
         onSave={handleSaveTransaction}
         transactionToEdit={selectedTx}
+      />
+
+      {/* Portfolio Manager Window Modal */}
+      <PortfolioManagerModal
+        isOpen={isPortfolioManagerOpen}
+        onClose={() => setIsPortfolioManagerOpen(false)}
+        portfolios={portfolios}
+        currentPortfolioId={currentPortfolioId}
+        onSelectPortfolio={handleSelectPortfolio}
+        onRenamePortfolio={handleRenamePortfolio}
+        onDeletePortfolio={handleDeletePortfolio}
+        onOpenUpload={() => setIsUploadOpen(true)}
+        onLoadDemo={handleLoadDemo}
       />
 
       {/* Footer */}

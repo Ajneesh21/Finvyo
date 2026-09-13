@@ -11,7 +11,6 @@ import {
   Receipt,
   FileCheck,
   CreditCard,
-  Scale,
   TrendingDown,
   DollarSign,
 } from "lucide-react";

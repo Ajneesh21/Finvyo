@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Upload,
   FileSpreadsheet,
@@ -8,10 +8,7 @@ import {
   AlertCircle,
   Sparkles,
   X,
-  Eye,
   Loader2,
-  Calendar,
-  Layers,
   ArrowRight,
   Clipboard,
 } from "lucide-react";
@@ -22,7 +19,11 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 interface PdfUploaderProps {
   isOpen: boolean;
   onClose: () => void;
-  onTransactionsLoaded: (transactions: Transaction[], portfolioName: string) => void;
+  onTransactionsLoaded: (
+    transactions: Transaction[],
+    portfolioName: string,
+    sourceFileName?: string
+  ) => void;
 }
 
 export const PdfUploader: React.FC<PdfUploaderProps> = ({
@@ -37,13 +38,43 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [parsedResult, setParsedResult] = useState<ParsedPdfResult | null>(null);
   const [fileName, setFileName] = useState<string>("");
-  const [showRawText, setShowRawText] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const resetState = () => {
+    setParsedResult(null);
+    setFileName("");
+    setPastedText("");
+    setUploadError(null);
+    setIsUploading(false);
+    setIsDragging(false);
+    setActiveTab("file");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      resetState();
+    }
+  }, [isOpen]);
+
+  const handleClose = () => {
+    resetState();
+    onClose();
+  };
 
   if (!isOpen) return null;
 
   const handleFileSelect = async (file: File) => {
     if (!file) return;
+
+    if (file.name.toLowerCase().endsWith(".csv")) {
+      setUploadError(
+        "CSV format is not supported because Vested CSV exports lack critical multi-sheet transaction and lot details. Please download and upload your statement in Excel (.xlsx) format from Vested."
+      );
+      return;
+    }
 
     setFileName(file.name);
     setIsUploading(true);
@@ -125,16 +156,21 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
         : "Imported Portfolio";
     }
 
-    onTransactionsLoaded(parsedResult.transactions, portName);
-    onClose();
+    onTransactionsLoaded(
+      parsedResult.transactions,
+      portName,
+      fileName || "Imported Spreadsheet"
+    );
+    handleClose();
   };
 
   const handleLoadSample = () => {
     onTransactionsLoaded(
       SAMPLE_VESTED_TRANSACTIONS,
-      "Sample Finvyo US Growth Portfolio"
+      "Sample Finvyo US Growth Portfolio",
+      "Demo Dataset"
     );
-    onClose();
+    handleClose();
   };
 
   const handleLoadSnippetExample = () => {
@@ -165,7 +201,7 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-white"
           >
             <X className="h-5 w-5" />
@@ -184,7 +220,7 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
               }`}
             >
               <Upload className="h-3.5 w-3.5" />
-              <span>Upload Excel / Numbers / CSV</span>
+              <span>Upload Vested Excel (.xlsx)</span>
             </button>
             <button
               onClick={() => setActiveTab("paste")}
@@ -221,7 +257,7 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".xlsx,.xls,.numbers,.csv,.txt"
+                accept=".xlsx,.xls,.numbers"
                 onChange={(e) => {
                   if (e.target.files && e.target.files.length > 0) {
                     handleFileSelect(e.target.files[0]);
@@ -246,10 +282,10 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
                     <FileSpreadsheet className="h-7 w-7" />
                   </div>
                   <p className="text-sm font-medium text-white">
-                    Click to browse or drag & drop Excel / Numbers file
+                    Click to browse or drag & drop Vested Excel file
                   </p>
                   <p className="mt-1 text-xs text-slate-400">
-                    Supports Excel (.xlsx, .xls), Apple Numbers (.numbers), and CSV exports
+                    Please download the <span className="font-semibold text-slate-300">.xlsx</span> statement from Vested (CSV is not supported due to missing transaction details)
                   </p>
                 </>
               )}
@@ -403,7 +439,7 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
               </button>
 
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 className="rounded-xl border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800"
               >
                 Cancel

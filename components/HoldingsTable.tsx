@@ -26,7 +26,6 @@ type SortKey =
 
 export const HoldingsTable: React.FC<HoldingsTableProps> = ({
   holdings,
-  totalValue,
 }) => {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("currentValue");

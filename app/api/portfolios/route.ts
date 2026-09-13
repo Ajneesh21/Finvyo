@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getAllPortfolios,
+  getPortfolioById,
   savePortfolio,
   deletePortfolio,
   StoredPortfolio,
@@ -38,6 +39,43 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     return NextResponse.json(
       { error: "Error saving portfolio", details: err?.message },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { id, name, isDefault } = body;
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "Missing id parameter in request body" },
+        { status: 400 }
+      );
+    }
+
+    const existing = await getPortfolioById(id);
+    if (!existing) {
+      return NextResponse.json(
+        { error: "Portfolio not found" },
+        { status: 404 }
+      );
+    }
+
+    if (name !== undefined) {
+      existing.name = name;
+    }
+    if (isDefault !== undefined) {
+      existing.isDefault = isDefault;
+    }
+
+    const saved = await savePortfolio(existing);
+    return NextResponse.json({ portfolio: saved });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: "Error updating portfolio", details: err?.message },
       { status: 500 }
     );
   }

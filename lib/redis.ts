@@ -36,7 +36,7 @@ function initRedis() {
       console.log("[Redis] Connected successfully to", redisUrl);
     });
 
-    redisClient.on("error", (err) => {
+    redisClient.on("error", () => {
       isRedisAvailable = false;
       // Silent error in dev/fallback mode
       if (process.env.NODE_ENV === "development") {

@@ -1,18 +1,8 @@
 "use client";
 
 import React from "react";
-import {
-  Globe,
-  TrendingUp,
-  ArrowUpRight,
-  ArrowDownRight,
-  Shield,
-  Award,
-  Zap,
-  DollarSign,
-  Scale,
-} from "lucide-react";
-import { PortfolioSummary, BenchmarkMetrics } from "@/lib/types";
+import { Globe, Award } from "lucide-react";
+import { PortfolioSummary } from "@/lib/types";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
 interface BenchmarkComparisonProps {

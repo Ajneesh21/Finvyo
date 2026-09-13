@@ -14,7 +14,7 @@ import {
 } from "recharts";
 import { DailyPortfolioPoint } from "@/lib/types";
 import { formatCurrency, formatPercent, formatDate } from "@/lib/utils";
-import { TrendingUp, DollarSign, Calendar } from "lucide-react";
+import { TrendingUp, DollarSign } from "lucide-react";
 
 interface PerformanceChartProps {
   timeline: DailyPortfolioPoint[];

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Transaction, TransactionType } from "@/lib/types";
-import { X, Plus, Edit2, Check } from "lucide-react";
+import { X } from "lucide-react";
 
 interface EditTransactionModalProps {
   isOpen: boolean;
@@ -90,7 +90,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.SubmitEvent) => {
     e.preventDefault();
     const newTx: Transaction = {
       id: transactionToEdit?.id || `tx-${Date.now()}`,

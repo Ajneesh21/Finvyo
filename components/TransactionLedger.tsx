@@ -1,17 +1,12 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { Transaction, TransactionType } from "@/lib/types";
+import { Transaction } from "@/lib/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   Search,
-  Filter,
   Download,
   Plus,
-  ArrowUpRight,
-  ArrowDownRight,
-  DollarSign,
-  Gift,
   FileText,
   Trash2,
   Edit2,
@@ -179,7 +174,6 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
                 const isSell = tx.type === "SELL";
                 const isDiv = tx.type === "DIVIDEND";
                 const isDep = tx.type === "DEPOSIT";
-                const isWth = tx.type === "WITHDRAWAL";
 
                 return (
                   <tr key={tx.id} className="hover:bg-slate-800/40 transition">

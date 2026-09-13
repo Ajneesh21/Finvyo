@@ -13,9 +13,21 @@ export interface TwrCalculationResult {
 }
 
 /**
- * Calculates Exact Time-Weighted Return (TWR) across cash flow sub-periods according to GIPS standards.
+ * Calculates Daily Cash-Flow-Adjusted Time-Weighted Return (TWR) using end-of-day
+ * portfolio valuations and EXTERNAL cash flow events (DEPOSIT / WITHDRAWAL only).
  *
- * @param cashFlows List of external deposits/withdrawals with dates
+ * Formula per sub-period:
+ *   V_end_pre  = V_end_post − net_external_flow_on_end_date
+ *   R_i        = (V_end_pre − V_start) / V_start
+ *   TWR        = ∏(1 + R_i) − 1
+ *
+ * IMPORTANT: This is a daily-granularity approximation. Because we only have end-of-day
+ * valuations, cash flows that are deployed intraday (e.g. a morning deposit that is
+ * immediately invested before the close) are not distinguished from flows that arrive
+ * at the close. For exact sub-period returns you would need intraday timestamps and
+ * valuations at the moment of each flow.
+ *
+ * @param cashFlows DEPOSIT/WITHDRAWAL events only — BUY/SELL must NOT be passed here
  * @param dailyValuations Map of date (YYYY-MM-DD) -> end-of-day portfolio valuation
  * @param initialDate First transaction date
  * @param finalDate Current / last date
@@ -30,14 +42,14 @@ export function calculateTWR(
     return { cumulativeTwrPercent: 0, annualizedTwrPercent: 0, subPeriods: [] };
   }
 
-  // Group cash flows by date
+  // Net same-day cash flows into a single value per date
   const cashFlowsByDate = new Map<string, number>();
   cashFlows.forEach((cf) => {
     const current = cashFlowsByDate.get(cf.date) || 0;
     cashFlowsByDate.set(cf.date, current + cf.amount);
   });
 
-  // Identify sub-period boundary dates
+  // Sub-period boundaries: inception, each external-flow date, and the final date
   const eventDateSet = new Set<string>();
   eventDateSet.add(initialDate);
   eventDateSet.add(finalDate);
@@ -54,10 +66,20 @@ export function calculateTWR(
   const subPeriods: SubPeriodReturn[] = [];
   let compoundFactor = 1.0;
 
-  // Day 0 end-of-day valuation is the starting base
-  let currentStartVal = dailyValuations.get(initialDate) || cashFlowsByDate.get(initialDate) || 1.0;
+  // Starting value for the first sub-period: prefer the timeline's EOD valuation on
+  // inception date; fall back to the net deposit on that date (i.e. the initial funding).
+  const baseDate = subPeriodDates[0];
+  let currentStartVal =
+    dailyValuations.get(baseDate) ||
+    cashFlowsByDate.get(baseDate) ||
+    0;
   if (currentStartVal <= 0) {
-    currentStartVal = cashFlowsByDate.get(initialDate) || 1.0;
+    currentStartVal = cashFlowsByDate.get(baseDate) || 0;
+  }
+
+  // If we still have no meaningful starting value we cannot compute TWR
+  if (currentStartVal < 1.0) {
+    return { cumulativeTwrPercent: 0, annualizedTwrPercent: 0, subPeriods: [] };
   }
 
   for (let i = 0; i < subPeriodDates.length - 1; i++) {
@@ -65,14 +87,23 @@ export function calculateTWR(
     const endDate = subPeriodDates[i + 1];
 
     const flowsOnEnd = cashFlowsByDate.get(endDate) || 0;
-    const endValPost = dailyValuations.get(endDate) || currentStartVal + flowsOnEnd;
+    const endValFromMap = dailyValuations.get(endDate);
 
-    // Value right before endDate's cash flow
+    // If we have no valuation for this date, estimate from previous value + flows.
+    // This is a rough approximation — prefer having a complete valuation map.
+    const endValPost =
+      endValFromMap !== undefined
+        ? endValFromMap
+        : Math.max(0, currentStartVal + flowsOnEnd);
+
+    // Portfolio value immediately BEFORE the end-date external cash flow.
+    // Approximation: assumes the flow arrived at end-of-day (not intraday).
     const endValPre = endValPost - flowsOnEnd;
 
-    // Sub-period return: (End Value Before Today's Inflow - Start Value) / Start Value
+    // Sub-period return: skip if the starting value is below ₹1 / $1
+    // (e.g., after a full liquidation — we should not divide by a phantom value).
     let periodReturn = 0;
-    if (currentStartVal > 0.01) {
+    if (currentStartVal >= 1.0) {
       periodReturn = (endValPre - currentStartVal) / currentStartVal;
     }
 
@@ -80,8 +111,9 @@ export function calculateTWR(
       periodReturn = 0;
     }
 
-    compoundFactor *= 1 + periodReturn;
+    const factorMultiplier = 1 + periodReturn;
 
+    // Record the sub-period before deciding whether to terminate
     subPeriods.push({
       startDate,
       endDate,
@@ -89,25 +121,45 @@ export function calculateTWR(
       cashFlow: flowsOnEnd,
       endValue: endValPre,
       periodReturn: periodReturn * 100,
-      cumulativeTWR: (compoundFactor - 1) * 100,
+      // Use the updated cumulative TWR for this entry
+      cumulativeTWR:
+        factorMultiplier > 0
+          ? (compoundFactor * factorMultiplier - 1) * 100
+          : -100,
     });
 
-    // Next sub-period starts with the post-cashflow end value
-    currentStartVal = Math.max(0.01, endValPost);
+    if (factorMultiplier <= 0) {
+      // Complete portfolio loss — compound factor reaches zero.
+      // Further sub-periods are mathematically undefined (divide-by-zero start value).
+      compoundFactor = 0;
+      break;
+    }
+
+    compoundFactor *= factorMultiplier;
+
+    // If the portfolio is fully liquidated after flows, stop rather than carrying a
+    // near-zero value as the denominator for the next period.
+    if (endValPost < 1.0) {
+      break;
+    }
+
+    currentStartVal = endValPost;
   }
 
   const cumulativeTwrPercent = (compoundFactor - 1) * 100;
 
-  // Calculate Annualized Return (CAGR)
+  // Annualized return (CAGR). Only meaningful after at least 30 days — annualizing
+  // very short holding periods produces astronomically large numbers that mislead users.
   const dStart = new Date(initialDate).getTime();
   const dEnd = new Date(finalDate).getTime();
   const daysDiff = Math.max(1, (dEnd - dStart) / (1000 * 60 * 60 * 24));
   const years = daysDiff / 365.25;
 
   let annualizedTwrPercent = 0;
-  if (years > 0.05 && compoundFactor > 0) {
+  if (daysDiff >= 30 && years > 0 && compoundFactor > 0) {
     annualizedTwrPercent = (Math.pow(compoundFactor, 1 / years) - 1) * 100;
   } else {
+    // Portfolio is too young to annualize — return the raw cumulative figure instead
     annualizedTwrPercent = cumulativeTwrPercent;
   }
 
@@ -120,6 +172,7 @@ export function calculateTWR(
 
 /**
  * Calculates daily compounded TWR series from daily valuation and daily cash flows.
+ * Each day's return = (V_today_before_flows − V_yesterday) / V_yesterday.
  */
 export function calculateDailyTWRSeries(
   dailyData: { date: string; value: number; cashFlow: number }[]
@@ -127,26 +180,36 @@ export function calculateDailyTWRSeries(
   if (dailyData.length === 0) return [];
 
   let compoundFactor = 1.0;
-  let prevValue = Math.max(0.01, dailyData[0].value);
+  let prevValue = dailyData[0].value;
 
   return dailyData.map((d, index) => {
     if (index === 0) {
-      prevValue = Math.max(0.01, d.value);
+      prevValue = d.value;
       return { date: d.date, twrPercent: 0 };
     }
 
     const valueBeforeTodayFlow = d.value - d.cashFlow;
     let dayReturn = 0;
 
-    if (prevValue > 0.01) {
+    // Skip division when the previous value is below a meaningful threshold
+    // (e.g., after a full liquidation that was followed by a new deposit)
+    if (prevValue >= 1.0) {
       dayReturn = (valueBeforeTodayFlow - prevValue) / prevValue;
     }
 
     if (!isNaN(dayReturn) && isFinite(dayReturn)) {
-      compoundFactor *= 1 + dayReturn;
+      const factor = 1 + dayReturn;
+      // A factor ≤ 0 means complete loss — stop compounding rather than going negative
+      if (factor > 0) {
+        compoundFactor *= factor;
+      } else {
+        compoundFactor = 0;
+      }
     }
 
-    prevValue = Math.max(0.01, d.value);
+    // Do not floor prevValue — use the actual portfolio value so the next day's
+    // denominator is honest (a zero means we had a full liquidation).
+    prevValue = d.value;
 
     return {
       date: d.date,
