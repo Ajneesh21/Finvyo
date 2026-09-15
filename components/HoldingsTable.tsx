@@ -31,6 +31,17 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
   const [sortKey, setSortKey] = useState<SortKey>("currentValue");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
+  const totalHoldingsValue = useMemo(() => {
+    return holdings.reduce((s, h) => s + h.currentValue, 0);
+  }, [holdings]);
+
+  const getWeight = (h: Holding): number => {
+    if (typeof h.portfolioWeight === "number" && !isNaN(h.portfolioWeight) && h.portfolioWeight > 0) {
+      return h.portfolioWeight;
+    }
+    return totalHoldingsValue > 0 ? (h.currentValue / totalHoldingsValue) * 100 : 0;
+  };
+
   const filteredHoldings = useMemo(() => {
     return holdings
       .filter((h) => {
@@ -42,6 +53,11 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
         );
       })
       .sort((a, b) => {
+        if (sortKey === "portfolioWeight") {
+          const wA = getWeight(a);
+          const wB = getWeight(b);
+          return sortOrder === "asc" ? wA - wB : wB - wA;
+        }
         let valA = a[sortKey];
         let valB = b[sortKey];
         if (typeof valA === "string") {
@@ -53,7 +69,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
           ? (valA as number) - (valB as number)
           : (valB as number) - (valA as number);
       });
-  }, [holdings, search, sortKey, sortOrder]);
+  }, [holdings, search, sortKey, sortOrder, totalHoldingsValue]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -64,19 +80,26 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
     }
   };
 
-  const totalCostBasis = holdings.reduce((s, h) => s + h.totalCostBasis, 0);
-  const totalHoldingsValue = holdings.reduce((s, h) => s + h.currentValue, 0);
-  const totalUnrealized = totalHoldingsValue - totalCostBasis;
+  const isFiltered = filteredHoldings.length !== holdings.length;
+  const activeList = isFiltered ? filteredHoldings : holdings;
+
+  const totalCostBasis = activeList.reduce((s, h) => s + h.totalCostBasis, 0);
+  const totalHoldingsValueCalculated = activeList.reduce((s, h) => s + h.currentValue, 0);
+  const displayTotalValue = isFiltered ? totalHoldingsValueCalculated : totalHoldingsValue;
+  const totalUnrealized = displayTotalValue - totalCostBasis;
   const totalUnrealizedPercent =
     totalCostBasis > 0 ? (totalUnrealized / totalCostBasis) * 100 : 0;
-  const totalDayGain = holdings.reduce((s, h) => s + h.dayChange, 0);
-  const previousDayHoldingsValue = totalHoldingsValue - totalDayGain;
+  const totalDayGain = activeList.reduce((s, h) => s + h.dayChange, 0);
+  const previousDayHoldingsValue = displayTotalValue - totalDayGain;
   const totalDayGainPercent =
     previousDayHoldingsValue > 0
       ? (totalDayGain / previousDayHoldingsValue) * 100
-      : totalHoldingsValue > 0
-      ? (totalDayGain / totalHoldingsValue) * 100
+      : displayTotalValue > 0
+      ? (totalDayGain / displayTotalValue) * 100
       : 0;
+  const totalWeightPercent = isFiltered
+    ? activeList.reduce((s, h) => s + getWeight(h), 0)
+    : 100;
 
   if (holdings.length === 0) {
     return (
@@ -93,7 +116,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
         <div>
           <h3 className="text-base font-bold text-white flex items-center gap-2">
             <Layers className="h-4 w-4 text-blue-400" />
-            Active Stock Holdings ({holdings.length} Assets)
+            Active Stock Holdings ({isFiltered ? `${filteredHoldings.length} of ${holdings.length}` : holdings.length} Assets)
           </h3>
           <p className="text-xs text-slate-400">
             Real-time market prices with live profit/loss and portfolio weight
@@ -120,11 +143,13 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
             <tr>
               <th
                 onClick={() => handleSort("symbol")}
-                className="px-4 py-3.5 font-semibold cursor-pointer hover:text-white select-none w-56"
+                className={`px-4 py-3.5 font-semibold cursor-pointer hover:text-white select-none w-56 ${
+                  sortKey === "symbol" ? "text-blue-400" : ""
+                }`}
               >
                 <div className="flex items-center gap-1.5">
                   <span>Asset / Symbol</span>
-                  <ArrowUpDown className="h-3 w-3 text-slate-500" />
+                  <ArrowUpDown className={`h-3 w-3 ${sortKey === "symbol" ? "text-blue-400" : "text-slate-500"}`} />
                 </div>
               </th>
               <th className="px-3 py-3.5 text-right font-semibold select-none w-24">
@@ -138,38 +163,46 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
               </th>
               <th
                 onClick={() => handleSort("dayChangePercent")}
-                className="px-3 py-3.5 text-right font-semibold cursor-pointer hover:text-white select-none w-28"
+                className={`px-3 py-3.5 text-right font-semibold cursor-pointer hover:text-white select-none w-28 ${
+                  sortKey === "dayChangePercent" ? "text-blue-400" : ""
+                }`}
               >
                 <div className="flex items-center justify-end gap-1.5">
                   <span>1D Change</span>
-                  <ArrowUpDown className="h-3 w-3 text-slate-500" />
+                  <ArrowUpDown className={`h-3 w-3 ${sortKey === "dayChangePercent" ? "text-blue-400" : "text-slate-500"}`} />
                 </div>
               </th>
               <th
                 onClick={() => handleSort("currentValue")}
-                className="px-3 py-3.5 text-right font-semibold cursor-pointer hover:text-white select-none w-32"
+                className={`px-3 py-3.5 text-right font-semibold cursor-pointer hover:text-white select-none w-32 ${
+                  sortKey === "currentValue" ? "text-blue-400" : ""
+                }`}
               >
                 <div className="flex items-center justify-end gap-1.5">
                   <span>Current Value</span>
-                  <ArrowUpDown className="h-3 w-3 text-slate-500" />
+                  <ArrowUpDown className={`h-3 w-3 ${sortKey === "currentValue" ? "text-blue-400" : "text-slate-500"}`} />
                 </div>
               </th>
               <th
                 onClick={() => handleSort("unrealizedPnL")}
-                className="px-3 py-3.5 text-right font-semibold cursor-pointer hover:text-white select-none w-36"
+                className={`px-3 py-3.5 text-right font-semibold cursor-pointer hover:text-white select-none w-36 ${
+                  sortKey === "unrealizedPnL" ? "text-blue-400" : ""
+                }`}
               >
                 <div className="flex items-center justify-end gap-1.5">
                   <span>Unrealized P&L</span>
-                  <ArrowUpDown className="h-3 w-3 text-slate-500" />
+                  <ArrowUpDown className={`h-3 w-3 ${sortKey === "unrealizedPnL" ? "text-blue-400" : "text-slate-500"}`} />
                 </div>
               </th>
               <th
                 onClick={() => handleSort("portfolioWeight")}
-                className="px-4 py-3.5 text-right font-semibold cursor-pointer hover:text-white select-none w-28"
+                className={`px-4 py-3.5 text-right font-semibold cursor-pointer hover:text-white select-none w-36 ${
+                  sortKey === "portfolioWeight" ? "text-blue-400" : ""
+                }`}
               >
                 <div className="flex items-center justify-end gap-1.5">
                   <span>Weight %</span>
-                  <ArrowUpDown className="h-3 w-3 text-slate-500" />
+                  <ArrowUpDown className={`h-3 w-3 ${sortKey === "portfolioWeight" ? "text-blue-400" : "text-slate-500"}`} />
                 </div>
               </th>
             </tr>
@@ -277,15 +310,18 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
 
                   {/* Portfolio Weight */}
                   <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <div className="flex items-center justify-end gap-2">
-                      <div className="w-12 rounded-full bg-slate-800 h-1.5 overflow-hidden">
+                    <div className="flex items-center justify-end gap-2.5">
+                      <div className="w-14 sm:w-16 rounded-full bg-slate-800 h-1.5 overflow-hidden flex-shrink-0">
                         <div
-                          className="h-full bg-blue-500 rounded-full"
-                          style={{ width: `${Math.min(100, h.portfolioWeight)}%` }}
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${Math.min(100, Math.max(0, getWeight(h)))}%`,
+                            backgroundColor: sectorColor,
+                          }}
                         />
                       </div>
-                      <span className="font-mono font-semibold text-slate-200 text-xs">
-                        {h.portfolioWeight.toFixed(1)}%
+                      <span className="w-14 text-right font-mono font-semibold text-slate-200 text-xs tabular-nums flex-shrink-0">
+                        {getWeight(h).toFixed(1)}%
                       </span>
                     </div>
                   </td>
@@ -297,7 +333,9 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
           {/* Total Summary Footer Row */}
           <tfoot className="border-t-2 border-slate-800 bg-slate-900/95 font-semibold text-white">
             <tr>
-              <td className="px-4 py-3.5 text-slate-200">Total Holdings</td>
+              <td className="px-4 py-3.5 text-slate-200">
+                {isFiltered ? "Filtered Total" : "Total Holdings"}
+              </td>
               <td className="px-3 py-3.5 text-right font-mono text-slate-400">-</td>
               <td className="px-3 py-3.5 text-right font-mono text-slate-300">
                 {formatCurrency(totalCostBasis)}
@@ -312,7 +350,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                 </span>
               </td>
               <td className="px-3 py-3.5 text-right font-mono font-extrabold text-white whitespace-nowrap">
-                {formatCurrency(totalHoldingsValue)}
+                {formatCurrency(displayTotalValue)}
               </td>
               <td className="px-3 py-3.5 text-right font-mono whitespace-nowrap">
                 <span
@@ -322,8 +360,20 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                   {formatPercent(totalUnrealizedPercent)})
                 </span>
               </td>
-              <td className="px-4 py-3.5 text-right font-mono text-blue-400 font-bold">
-                100.0%
+              <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                <div className="flex items-center justify-end gap-2.5">
+                  <div className="w-14 sm:w-16 rounded-full bg-slate-800 h-1.5 overflow-hidden flex-shrink-0">
+                    <div
+                      className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, totalWeightPercent))}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="w-14 text-right font-mono text-blue-400 font-bold text-xs tabular-nums flex-shrink-0">
+                    {totalWeightPercent.toFixed(1)}%
+                  </span>
+                </div>
               </td>
             </tr>
           </tfoot>

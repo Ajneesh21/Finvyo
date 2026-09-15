@@ -115,8 +115,9 @@ export async function computePortfolioSummary(
     } else if (type === "BUY") {
       const shares = Math.abs(tx.shares);
       const price = Math.abs(tx.price);
-      const cost = Math.abs(tx.amount) > 0 ? Math.abs(tx.amount) : shares * price;
-      cashBalance -= cost + fee;
+      // If tx.amount is provided by the broker, it already represents the exact cash outflow (including fee).
+      const cost = Math.abs(tx.amount) > 0 ? Math.abs(tx.amount) : shares * price + fee;
+      cashBalance -= cost;
 
       if (!holdingsMap.has(symbol)) {
         holdingsMap.set(symbol, {
@@ -135,8 +136,10 @@ export async function computePortfolioSummary(
     } else if (type === "SELL") {
       const sharesToSell = Math.abs(tx.shares);
       const sellPrice = Math.abs(tx.price);
-      const proceeds = Math.abs(tx.amount) > 0 ? Math.abs(tx.amount) : sharesToSell * sellPrice;
-      cashBalance += proceeds - fee;
+      // If tx.amount is provided by the broker, it already represents the exact net cash proceeds (after fee).
+      const netProceeds =
+        Math.abs(tx.amount) > 0 ? Math.abs(tx.amount) : Math.max(0, sharesToSell * sellPrice - fee);
+      cashBalance += netProceeds;
 
       if (!holdingsMap.has(symbol)) {
         holdingsMap.set(symbol, {
@@ -156,9 +159,9 @@ export async function computePortfolioSummary(
         const lot = pos.buyLots[0];
         const lotSharesSold = Math.min(lot.shares, remainingToSell);
         const lotCost = lotSharesSold * lot.price;
-        const lotProceeds = lotSharesSold * sellPrice;
-        const lotFee = sharesToSell > 0 ? (lotSharesSold / sharesToSell) * fee : 0;
-        const lotGain = lotProceeds - lotCost - lotFee;
+        const lotProceeds =
+          sharesToSell > 0 ? (lotSharesSold / sharesToSell) * netProceeds : 0;
+        const lotGain = lotProceeds - lotCost;
 
         totalCostOfSoldShares += lotCost;
         remainingToSell -= lotSharesSold;
@@ -188,11 +191,10 @@ export async function computePortfolioSummary(
 
       if (remainingToSell > 0.00001) {
         // No matching buy lots found for these shares (e.g. imported CSV missing history).
-        // Assume zero realized gain rather than fabricating a cost basis with an arbitrary
-        // multiplier. The user should reconcile missing buy history separately.
-        const lotCost = remainingToSell * sellPrice; // cost = proceeds → gain = 0
-        const lotProceeds = remainingToSell * sellPrice;
-        const lotGain = 0;
+        const lotCost = remainingToSell * sellPrice;
+        const lotProceeds =
+          sharesToSell > 0 ? (remainingToSell / sharesToSell) * netProceeds : remainingToSell * sellPrice;
+        const lotGain = lotProceeds - lotCost;
         totalCostOfSoldShares += lotCost;
 
         realizedTrades.push({
@@ -212,7 +214,7 @@ export async function computePortfolioSummary(
 
       pos.shares = Math.max(0, pos.shares - sharesToSell);
 
-      const realizedGain = proceeds - totalCostOfSoldShares - fee;
+      const realizedGain = netProceeds - totalCostOfSoldShares;
       totalRealizedPnL += realizedGain;
     } else if (type === "FEE" || type === "TAX") {
       const amt = Math.abs(tx.amount || fee);
@@ -570,15 +572,22 @@ async function generatePortfolioTimeline(
     Math.floor((end.getTime() - start.getTime()) / (1000 * 86400))
   );
 
-  // Fetch benchmark daily histories
-  const [sp500History, nasdaqHistory, niftyHistory, dowHistory, msciHistory] =
-    await Promise.all([
+  // Fetch benchmark daily histories and live benchmark quotes
+  const [
+    benchmarkQuotes,
+    [sp500History, nasdaqHistory, niftyHistory, dowHistory, msciHistory],
+  ] = await Promise.all([
+    getMultipleStockQuotes(["^GSPC", "^NDX", "^NSEI", "^DJI", "URTH"]).catch(
+      () => ({} as Record<string, StockQuote>)
+    ),
+    Promise.all([
       getStockDailyHistory("^GSPC", startDateStr),
       getStockDailyHistory("^NDX", startDateStr),
       getStockDailyHistory("^NSEI", startDateStr),
       getStockDailyHistory("^DJI", startDateStr),
       getStockDailyHistory("URTH", startDateStr),
-    ]);
+    ]),
+  ]);
 
   // Fetch daily history for all traded symbols with concurrency limiting (chunk size 4)
   const allSymbols = Array.from(
@@ -692,10 +701,10 @@ async function generatePortfolioTimeline(
     lastKnownStockPrice[sym] = initialPrice;
   });
 
-  const step = totalDays > 365 ? 3 : totalDays > 90 ? 2 : 1;
   const initialStockCost = Math.max(1, currentCostBasis);
 
-  // Build evaluation dates: regular stepped dates plus every transaction date (so no cash flow date is missed)
+  // Build evaluation dates: every single calendar day from startDateStr to endDateStr,
+  // plus any transaction dates, ensuring no day (weekdays, weekends, or cash flow dates) is missed.
   const evalDateSet = new Set<string>();
   evalDateSet.add(startDateStr);
   evalDateSet.add(endDateStr);
@@ -705,9 +714,12 @@ async function generatePortfolioTimeline(
       evalDateSet.add(dStr);
     }
   });
-  for (let i = 0; i <= totalDays; i += step) {
-    const d = new Date(start.getTime() + i * 86400 * 1000);
-    evalDateSet.add(d.toISOString().split("T")[0]);
+
+  const curDate = new Date(`${startDateStr}T00:00:00Z`);
+  const stopDate = new Date(`${endDateStr}T00:00:00Z`);
+  while (curDate <= stopDate) {
+    evalDateSet.add(curDate.toISOString().split("T")[0]);
+    curDate.setUTCDate(curDate.getUTCDate() + 1);
   }
   const evalDates = Array.from(evalDateSet).sort((a, b) => a.localeCompare(b));
 
@@ -735,13 +747,13 @@ async function generatePortfolioTimeline(
         runningCash -= wth + fee;
         cumulativeDeposits -= wth;
       } else if (tx.type === "BUY" && sym !== "CASH" && sym !== "USD") {
-        const cost = Math.abs(tx.amount || tx.shares * tx.price);
-        runningCash -= cost + fee;
+        const cost = Math.abs(tx.amount) > 0 ? Math.abs(tx.amount) : Math.abs(tx.shares * tx.price) + fee;
+        runningCash -= cost;
         runningShares[sym] = (runningShares[sym] || 0) + Math.abs(tx.shares);
         runningCost += cost;
       } else if (tx.type === "SELL" && sym !== "CASH" && sym !== "USD") {
-        const proceeds = Math.abs(tx.amount || tx.shares * tx.price);
-        runningCash += proceeds - fee;
+        const netProceeds = Math.abs(tx.amount) > 0 ? Math.abs(tx.amount) : Math.max(0, Math.abs(tx.shares * tx.price) - fee);
+        runningCash += netProceeds;
         runningShares[sym] = Math.max(0, (runningShares[sym] || 0) - Math.abs(tx.shares));
         runningCost = Math.max(0, runningCost - Math.abs(tx.amount || tx.shares * tx.price));
       } else if (tx.type === "DIVIDEND") {
@@ -758,11 +770,37 @@ async function generatePortfolioTimeline(
       txIdx++;
     }
 
-    if (spMap.has(dateStr)) lastKnownSp = spMap.get(dateStr)!;
-    if (ndxMap.has(dateStr)) lastKnownNdx = ndxMap.get(dateStr)!;
-    if (niftyMap.has(dateStr)) lastKnownNifty = niftyMap.get(dateStr)!;
-    if (dowMap.has(dateStr)) lastKnownDow = dowMap.get(dateStr)!;
-    if (msciMap.has(dateStr)) lastKnownMsci = msciMap.get(dateStr)!;
+    const isToday = dateStr === endDateStr;
+
+    if (spMap.has(dateStr)) {
+      lastKnownSp = spMap.get(dateStr)!;
+    } else if (isToday && benchmarkQuotes["^GSPC"]?.regularMarketPrice && benchmarkQuotes["^GSPC"].regularMarketPrice > 0) {
+      lastKnownSp = benchmarkQuotes["^GSPC"].regularMarketPrice;
+    }
+
+    if (ndxMap.has(dateStr)) {
+      lastKnownNdx = ndxMap.get(dateStr)!;
+    } else if (isToday && benchmarkQuotes["^NDX"]?.regularMarketPrice && benchmarkQuotes["^NDX"].regularMarketPrice > 0) {
+      lastKnownNdx = benchmarkQuotes["^NDX"].regularMarketPrice;
+    }
+
+    if (niftyMap.has(dateStr)) {
+      lastKnownNifty = niftyMap.get(dateStr)!;
+    } else if (isToday && benchmarkQuotes["^NSEI"]?.regularMarketPrice && benchmarkQuotes["^NSEI"].regularMarketPrice > 0) {
+      lastKnownNifty = benchmarkQuotes["^NSEI"].regularMarketPrice;
+    }
+
+    if (dowMap.has(dateStr)) {
+      lastKnownDow = dowMap.get(dateStr)!;
+    } else if (isToday && benchmarkQuotes["^DJI"]?.regularMarketPrice && benchmarkQuotes["^DJI"].regularMarketPrice > 0) {
+      lastKnownDow = benchmarkQuotes["^DJI"].regularMarketPrice;
+    }
+
+    if (msciMap.has(dateStr)) {
+      lastKnownMsci = msciMap.get(dateStr)!;
+    } else if (isToday && benchmarkQuotes["URTH"]?.regularMarketPrice && benchmarkQuotes["URTH"].regularMarketPrice > 0) {
+      lastKnownMsci = benchmarkQuotes["URTH"].regularMarketPrice;
+    }
 
     // Update last known prices for each stock from actual historical daily closes
     allSymbols.forEach((sym) => {
@@ -771,13 +809,16 @@ async function generatePortfolioTimeline(
       }
     });
 
-    // Compute total market value of held stocks on this day using real historical prices.
-    // If no price is known for a symbol yet (price = 0), it contributes 0 to the total
-    // rather than a fabricated $100 — the next available historical price will be used.
+    // Compute total market value of held stocks on this day using real historical prices or live quote for today
     let dayHoldingsVal = 0;
     Object.entries(runningShares).forEach(([sym, shares]) => {
       if (shares > 0) {
-        const p = lastKnownStockPrice[sym] || quotes[sym]?.regularMarketPrice || 0;
+        let p = 0;
+        if (isToday && quotes[sym]?.regularMarketPrice && quotes[sym].regularMarketPrice > 0) {
+          p = quotes[sym].regularMarketPrice;
+        } else {
+          p = lastKnownStockPrice[sym] || quotes[sym]?.regularMarketPrice || 0;
+        }
         dayHoldingsVal += shares * p;
       }
     });
@@ -870,6 +911,11 @@ async function generatePortfolioTimeline(
       last.unrealizedPnL = Number((finalTotalVal - finalNetInvested).toFixed(2));
       last.cumulativeTWR = Number(finalReturn.toFixed(2));
       last.simpleReturn = Number(finalSimpleReturn.toFixed(2));
+      last.sp500TWR = Number(spPercent.toFixed(2));
+      last.nasdaqTWR = Number(ndxPercent.toFixed(2));
+      last.nifty50TWR = Number(niftyPercent.toFixed(2));
+      last.dowTWR = Number(dowPercent.toFixed(2));
+      last.msciWorldTWR = Number(msciPercent.toFixed(2));
     }
   }
 
@@ -884,31 +930,44 @@ function computeRiskMetrics(
     return { volatility: 15.0, sharpeRatio: 1.2, maxDrawdown: 12.0 };
   }
 
+  // Calculate daily investment returns isolated from external cash flows (deposits & withdrawals).
+  // Using the cumulative TWR series ensures that a $1,000 or $5,000 cash deposit is not
+  // mistaken for an artificial +100% or +50% daily market return spike.
   const dailyReturns: number[] = [];
-  let peak = timeline[0]?.portfolioValue || 1;
+  let peakTwr = 1 + (timeline[0]?.cumulativeTWR || 0) / 100;
   let maxDrawdown = 0;
 
   for (let i = 1; i < timeline.length; i++) {
-    const prev = timeline[i - 1].portfolioValue;
-    const curr = timeline[i].portfolioValue;
-    if (prev > 0) {
-      dailyReturns.push((curr - prev) / prev);
+    const prevTwr = 1 + (timeline[i - 1].cumulativeTWR || 0) / 100;
+    const currTwr = 1 + (timeline[i].cumulativeTWR || 0) / 100;
+
+    if (prevTwr > 0) {
+      const dailyR = currTwr / prevTwr - 1;
+      dailyReturns.push(dailyR);
     }
 
-    if (curr > peak) {
-      peak = curr;
+    // Maximum Drawdown measured on cumulative performance (Wealth Index / NAV),
+    // ensuring cash withdrawals are not mistaken for investment losses.
+    if (currTwr > peakTwr) {
+      peakTwr = currTwr;
     }
-    const drawdown = peak > 0 ? ((peak - curr) / peak) * 100 : 0;
+    const drawdown = peakTwr > 0 ? ((peakTwr - currTwr) / peakTwr) * 100 : 0;
     if (drawdown > maxDrawdown) {
       maxDrawdown = drawdown;
     }
   }
 
-  const avg =
-    dailyReturns.reduce((sum, r) => sum + r, 0) / (dailyReturns.length || 1);
+  const n = dailyReturns.length;
+  if (n === 0) {
+    return { volatility: 15.0, sharpeRatio: 1.2, maxDrawdown: 0 };
+  }
+
+  const avg = dailyReturns.reduce((sum, r) => sum + r, 0) / n;
+  // Sample variance using Bessel's correction (n - 1)
   const variance =
-    dailyReturns.reduce((sum, r) => sum + Math.pow(r - avg, 2), 0) /
-    (dailyReturns.length || 1);
+    n > 1
+      ? dailyReturns.reduce((sum, r) => sum + Math.pow(r - avg, 2), 0) / (n - 1)
+      : 0;
   const dailyStdDev = Math.sqrt(variance);
   const annualizedVolatility = dailyStdDev * Math.sqrt(252) * 100;
 
@@ -918,9 +977,9 @@ function computeRiskMetrics(
     annualizedVolatility > 0 ? excessReturn / annualizedVolatility : 0;
 
   return {
-    volatility: Math.max(1, annualizedVolatility),
-    sharpeRatio: isNaN(sharpeRatio) ? 1.0 : sharpeRatio,
-    maxDrawdown: Math.max(0, maxDrawdown),
+    volatility: Math.max(0.1, Number(annualizedVolatility.toFixed(2))),
+    sharpeRatio: isNaN(sharpeRatio) ? 1.0 : Number(sharpeRatio.toFixed(2)),
+    maxDrawdown: Math.max(0, Number(maxDrawdown.toFixed(2))),
   };
 }
 

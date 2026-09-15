@@ -598,3 +598,96 @@ describe("Stock Split Detection & Normalization", () => {
     assert.equal(detectSplitScale(2.40), 1.0);
   });
 });
+
+describe("Portfolio Risk Metrics (Volatility, Sharpe, Max Drawdown)", () => {
+  it("should not inflate annualized volatility when large cash deposits occur", async () => {
+    // Portfolio with steady 0% stock movement but massive cash deposits ($1,000 -> $5,000 -> $10,000)
+    const transactions: Transaction[] = [
+      { id: "d1", date: "2024-01-01T10:00:00Z", type: "DEPOSIT", symbol: "CASH", shares: 0, price: 1, amount: 1000 },
+      { id: "b1", date: "2024-01-02T10:00:00Z", type: "BUY", symbol: "AAPL", shares: 10, price: 100, amount: 1000 },
+      { id: "d2", date: "2024-01-05T10:00:00Z", type: "DEPOSIT", symbol: "CASH", shares: 0, price: 1, amount: 5000 },
+      { id: "b2", date: "2024-01-08T10:00:00Z", type: "BUY", symbol: "AAPL", shares: 50, price: 100, amount: 5000 },
+      { id: "d3", date: "2024-01-10T10:00:00Z", type: "DEPOSIT", symbol: "CASH", shares: 0, price: 1, amount: 10000 },
+    ];
+
+    const quotesOverride: Record<string, StockQuote> = {
+      AAPL: {
+        symbol: "AAPL",
+        regularMarketPrice: 100,
+        regularMarketChange: 0,
+        regularMarketChangePercent: 0,
+        lastUpdated: new Date().toISOString(),
+      },
+    };
+
+    const summary = await computePortfolioSummary(transactions, quotesOverride);
+    // Because underlying asset price is flat ($100), pure volatility should be ~0%, NOT hundreds of percent
+    assert.ok(
+      summary.volatility < 10.0,
+      `Expected low volatility (<10%) for flat asset despite deposits, got ${summary.volatility}%`
+    );
+    // Drawdown should be 0% since no asset loss occurred
+    assert.equal(summary.maxDrawdown, 0);
+  });
+});
+
+describe("Portfolio Timeline Continuity & Weekend Handling", () => {
+  it("should generate continuous daily points including Friday and Sunday over a multi-month period", async () => {
+    // 120-day span (previously caused step = 2 to skip alternate days like Friday and Sunday)
+    const transactions: Transaction[] = [
+      {
+        id: "d-start",
+        date: "2026-05-01T10:00:00Z",
+        type: "DEPOSIT",
+        symbol: "CASH",
+        shares: 0,
+        price: 1,
+        amount: 5000,
+      },
+      {
+        id: "b-start",
+        date: "2026-05-02T10:00:00Z",
+        type: "BUY",
+        symbol: "AAPL",
+        shares: 25,
+        price: 180,
+        amount: 4500,
+      },
+    ];
+
+    const quotesOverride: Record<string, StockQuote> = {
+      AAPL: {
+        symbol: "AAPL",
+        regularMarketPrice: 200,
+        regularMarketChange: 0,
+        regularMarketChangePercent: 0,
+        lastUpdated: new Date().toISOString(),
+      },
+    };
+
+    const summary = await computePortfolioSummary(transactions, quotesOverride);
+    assert.ok(summary.timeline.length >= 100, `Expected at least 100 timeline points, got ${summary.timeline.length}`);
+
+    // Verify all consecutive days exist with step = 1 (no gaps)
+    for (let i = 1; i < summary.timeline.length; i++) {
+      const prevDate = new Date(`${summary.timeline[i - 1].date}T00:00:00Z`);
+      const currDate = new Date(`${summary.timeline[i].date}T00:00:00Z`);
+      const diffDays = Math.round((currDate.getTime() - prevDate.getTime()) / (86400 * 1000));
+      assert.equal(
+        diffDays,
+        1,
+        `Expected exactly 1 day step between ${summary.timeline[i - 1].date} and ${summary.timeline[i].date}, got ${diffDays}`
+      );
+    }
+
+    // Verify Friday and Sunday explicitly exist in the recent days of the timeline
+    const daysOfWeek = summary.timeline.map((pt) =>
+      new Date(`${pt.date}T00:00:00Z`).getUTCDay()
+    );
+    // 0 = Sunday, 5 = Friday
+    assert.ok(daysOfWeek.includes(5), "Timeline must include Friday (day 5)");
+    assert.ok(daysOfWeek.includes(0), "Timeline must include Sunday (day 0)");
+    assert.ok(daysOfWeek.includes(6), "Timeline must include Saturday (day 6)");
+  });
+});
+
