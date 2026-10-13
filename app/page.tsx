@@ -208,6 +208,7 @@ export default function Home() {
             {activeTab === "ledger" && (
               <div className="space-y-6">
                 <TransactionLedger
+                  portfolioId={currentPortfolioId}
                   transactions={transactions}
                   onAddTransaction={() => {
                     setSelectedTx(null);
@@ -226,7 +227,10 @@ export default function Home() {
             {/* Tab 6: TWR & Tax Analytics */}
             {activeTab === "metrics" && (
               <div className="space-y-6">
-                <MetricsDetail summary={summary} />
+                <MetricsDetail
+                  summary={summary}
+                  portfolioId={currentPortfolioId}
+                />
               </div>
             )}
           </div>
@@ -297,10 +301,10 @@ export default function Home() {
       <footer className="border-t border-slate-800/80 bg-[#080b12] py-4 text-center text-xs text-slate-500">
         <div className="mx-auto max-w-7xl px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p>
-            Finvyo &copy; {new Date().getFullYear()} &middot; Your wealth. In view. &middot; Next.js + Finnhub + Redis
+            Finvyo &copy; {new Date().getFullYear()} &middot; Your wealth. In view. &middot; Next.js + Redis
           </p>
           <p className="text-[11px] text-slate-600">
-            Real-time market quotes via Finnhub API & Yahoo Finance. All calculations computed locally.
+            Real-time market quotes via Yahoo Finance. All calculations computed locally.
           </p>
         </div>
       </footer>

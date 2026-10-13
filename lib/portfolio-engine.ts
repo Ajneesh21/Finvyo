@@ -9,13 +9,33 @@ import {
 import { getTickerSector } from "./utils";
 import { calculateTWR, CashFlowEvent, alignTimelineTWRSeries } from "./twr-calculator";
 import { calculateXIRR } from "./xirr-calculator";
-import { getMultipleStockQuotes, getStockDailyHistory } from "./stock-api";
+import { getMultipleStockQuotes, getStockDailyHistory, HistoricalPricePoint } from "./stock-api";
 import { computeBenchmarkMetrics } from "./benchmark-service";
 
 interface BuyLot {
   shares: number;
   price: number;
   date: string;
+  fxRate: number;
+}
+
+const FALLBACK_USD_INR = 83;
+
+/** Returns the USD→INR rate on or before the given date (nearest prior trading day). */
+function lookupFxRate(
+  series: HistoricalPricePoint[],
+  date: string,
+  explicit?: number
+): number {
+  if (explicit && explicit > 0) return explicit;
+  const d = date.split("T")[0];
+  let best: number | undefined;
+  for (const p of series) {
+    if (p.date <= d) best = p.close;
+    else break;
+  }
+  if (best === undefined && series.length > 0) best = series[0].close;
+  return best ?? FALLBACK_USD_INR;
 }
 
 export async function computePortfolioSummary(
@@ -55,8 +75,17 @@ export async function computePortfolioSummary(
     )
   );
 
-  // Fetch real-time quotes directly from Finnhub & Yahoo Finance
+  // Fetch real-time quotes directly from Yahoo Finance
   const quotes = quotesOverride || (await getMultipleStockQuotes(symbols));
+
+  // Historical USD→INR for capital-gains tax conversion (buy/sell date rates)
+  let fxSeries: HistoricalPricePoint[] = [];
+  try {
+    fxSeries = await getStockDailyHistory("INR=X", firstTransactionDate, false);
+    fxSeries = [...fxSeries].sort((a, b) => a.date.localeCompare(b.date));
+  } catch {
+    fxSeries = [];
+  }
 
   // 1. Process positions, cost basis, realized gains, and cash
   let cashBalance = 0;
@@ -132,7 +161,12 @@ export async function computePortfolioSummary(
       pos.shares += shares;
       pos.totalBoughtShares += shares;
       pos.totalBoughtCost += cost;
-      pos.buyLots.push({ shares, price: cost / (shares || 1), date: tx.date });
+      pos.buyLots.push({
+        shares,
+        price: cost / (shares || 1),
+        date: tx.date,
+        fxRate: lookupFxRate(fxSeries, tx.date, tx.exchangeRate),
+      });
     } else if (type === "SELL") {
       const sharesToSell = Math.abs(tx.shares);
       const sellPrice = Math.abs(tx.price);
@@ -154,6 +188,7 @@ export async function computePortfolioSummary(
 
       let remainingToSell = sharesToSell;
       let totalCostOfSoldShares = 0;
+      const sellFxRate = lookupFxRate(fxSeries, tx.date, tx.exchangeRate);
 
       while (remainingToSell > 0.00001 && pos.buyLots.length > 0) {
         const lot = pos.buyLots[0];
@@ -186,6 +221,10 @@ export async function computePortfolioSummary(
             lotCost > 0 ? Number(((lotGain / lotCost) * 100).toFixed(2)) : 0,
           holdingPeriodDays: holdingDays,
           taxType: holdingDays > 730 ? "LONG_TERM" : "SHORT_TERM",
+          buyDate: lot.date,
+          proceeds: Number(lotProceeds.toFixed(2)),
+          buyFxRate: lot.fxRate,
+          sellFxRate,
         });
       }
 
@@ -208,6 +247,10 @@ export async function computePortfolioSummary(
           realizedGainPercent: 0,
           holdingPeriodDays: 1,
           taxType: "SHORT_TERM",
+          buyDate: tx.date,
+          proceeds: Number(lotProceeds.toFixed(2)),
+          buyFxRate: sellFxRate,
+          sellFxRate,
         });
         remainingToSell = 0;
       }
@@ -240,7 +283,7 @@ export async function computePortfolioSummary(
     }
   }
 
-  // 2. Compute Open Holdings with Real-Time Market Prices from Finnhub / Yahoo
+  // 2. Compute Open Holdings with Real-Time Market Prices from Yahoo Finance
   let totalHoldingsValue = 0;
   let totalCostBasis = 0;
 
@@ -348,7 +391,7 @@ export async function computePortfolioSummary(
       : 0;
 
   // 4. Daily Timeline from first stock buy date with Real Market Fluctuations
-  const timeline = await generatePortfolioTimeline(
+  const { timeline, benchmarkHistories, benchmarkQuotes } = await generatePortfolioTimeline(
     sortedTx,
     firstTransactionDate,
     lastTransactionDate,
@@ -436,7 +479,9 @@ export async function computePortfolioSummary(
       date: t.date,
       amount: t.type === "BUY" ? Math.abs(t.amount || t.shares * t.price) : -Math.abs(t.amount || t.shares * t.price),
       description: t.type,
-    }))
+    })),
+    benchmarkHistories,
+    benchmarkQuotes
   );
 
   const { volatility, sharpeRatio, maxDrawdown } = computeRiskMetrics(
@@ -486,6 +531,10 @@ export async function computePortfolioSummary(
             },
           ],
     benchmarks,
+    usdInrRate:
+      fxSeries.length > 0
+        ? Number(fxSeries[fxSeries.length - 1].close.toFixed(2))
+        : FALLBACK_USD_INR,
   };
 }
 
@@ -563,7 +612,11 @@ async function generatePortfolioTimeline(
   currentCostBasis: number,
   quotes: Record<string, StockQuote>,
   finalTwrPercent?: number
-): Promise<DailyPortfolioPoint[]> {
+): Promise<{
+  timeline: DailyPortfolioPoint[];
+  benchmarkHistories: Record<string, HistoricalPricePoint[]>;
+  benchmarkQuotes: Record<string, StockQuote>;
+}> {
   const points: DailyPortfolioPoint[] = [];
   const start = new Date(startDateStr);
   const end = new Date(endDateStr);
@@ -599,7 +652,7 @@ async function generatePortfolioTimeline(
     ])
   );
   const stockHistories: Record<string, Map<string, number>> = {};
-  const CHUNK_SIZE = 4;
+  const CHUNK_SIZE = 8;
 
   for (let i = 0; i < allSymbols.length; i += CHUNK_SIZE) {
     const chunk = allSymbols.slice(i, i + CHUNK_SIZE);
@@ -772,34 +825,34 @@ async function generatePortfolioTimeline(
 
     const isToday = dateStr === endDateStr;
 
-    if (spMap.has(dateStr)) {
-      lastKnownSp = spMap.get(dateStr)!;
-    } else if (isToday && benchmarkQuotes["^GSPC"]?.regularMarketPrice && benchmarkQuotes["^GSPC"].regularMarketPrice > 0) {
+    if (isToday && benchmarkQuotes["^GSPC"]?.regularMarketPrice && benchmarkQuotes["^GSPC"].regularMarketPrice > 0) {
       lastKnownSp = benchmarkQuotes["^GSPC"].regularMarketPrice;
+    } else if (spMap.has(dateStr)) {
+      lastKnownSp = spMap.get(dateStr)!;
     }
 
-    if (ndxMap.has(dateStr)) {
-      lastKnownNdx = ndxMap.get(dateStr)!;
-    } else if (isToday && benchmarkQuotes["^NDX"]?.regularMarketPrice && benchmarkQuotes["^NDX"].regularMarketPrice > 0) {
+    if (isToday && benchmarkQuotes["^NDX"]?.regularMarketPrice && benchmarkQuotes["^NDX"].regularMarketPrice > 0) {
       lastKnownNdx = benchmarkQuotes["^NDX"].regularMarketPrice;
+    } else if (ndxMap.has(dateStr)) {
+      lastKnownNdx = ndxMap.get(dateStr)!;
     }
 
-    if (niftyMap.has(dateStr)) {
-      lastKnownNifty = niftyMap.get(dateStr)!;
-    } else if (isToday && benchmarkQuotes["^NSEI"]?.regularMarketPrice && benchmarkQuotes["^NSEI"].regularMarketPrice > 0) {
+    if (isToday && benchmarkQuotes["^NSEI"]?.regularMarketPrice && benchmarkQuotes["^NSEI"].regularMarketPrice > 0) {
       lastKnownNifty = benchmarkQuotes["^NSEI"].regularMarketPrice;
+    } else if (niftyMap.has(dateStr)) {
+      lastKnownNifty = niftyMap.get(dateStr)!;
     }
 
-    if (dowMap.has(dateStr)) {
-      lastKnownDow = dowMap.get(dateStr)!;
-    } else if (isToday && benchmarkQuotes["^DJI"]?.regularMarketPrice && benchmarkQuotes["^DJI"].regularMarketPrice > 0) {
+    if (isToday && benchmarkQuotes["^DJI"]?.regularMarketPrice && benchmarkQuotes["^DJI"].regularMarketPrice > 0) {
       lastKnownDow = benchmarkQuotes["^DJI"].regularMarketPrice;
+    } else if (dowMap.has(dateStr)) {
+      lastKnownDow = dowMap.get(dateStr)!;
     }
 
-    if (msciMap.has(dateStr)) {
-      lastKnownMsci = msciMap.get(dateStr)!;
-    } else if (isToday && benchmarkQuotes["URTH"]?.regularMarketPrice && benchmarkQuotes["URTH"].regularMarketPrice > 0) {
+    if (isToday && benchmarkQuotes["URTH"]?.regularMarketPrice && benchmarkQuotes["URTH"].regularMarketPrice > 0) {
       lastKnownMsci = benchmarkQuotes["URTH"].regularMarketPrice;
+    } else if (msciMap.has(dateStr)) {
+      lastKnownMsci = msciMap.get(dateStr)!;
     }
 
     // Update last known prices for each stock from actual historical daily closes
@@ -919,7 +972,15 @@ async function generatePortfolioTimeline(
     }
   }
 
-  return points;
+  const benchmarkHistoriesMap: Record<string, HistoricalPricePoint[]> = {
+    "^GSPC": sp500History,
+    "^NDX": nasdaqHistory,
+    "^NSEI": niftyHistory,
+    "^DJI": dowHistory,
+    URTH: msciHistory,
+  };
+
+  return { timeline: points, benchmarkHistories: benchmarkHistoriesMap, benchmarkQuotes };
 }
 
 function computeRiskMetrics(

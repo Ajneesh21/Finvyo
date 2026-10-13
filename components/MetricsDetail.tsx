@@ -1,8 +1,9 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { PortfolioSummary } from "@/lib/types";
 import { formatCurrency, formatPercent, formatDate } from "@/lib/utils";
+import { TablePagination } from "./TablePagination";
 import {
   Activity,
   Calculator,
@@ -13,17 +14,221 @@ import {
   CreditCard,
   TrendingDown,
   DollarSign,
+  Landmark,
+  RefreshCw,
 } from "lucide-react";
+
+// Short-term default of 20% applies until March 2027; user can override.
+const DEFAULT_ST_RATE = 20;
+// Long-term (held > 2 years) rate for foreign equity.
+const LT_RATE = 12.5;
+const ST_RATE_KEY = "finvyo:shortTermTaxRate";
 
 interface MetricsDetailProps {
   summary: PortfolioSummary;
+  portfolioId?: string;
 }
 
-export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary }) => {
+export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary, portfolioId }) => {
   const feePercentOfInvested =
     summary.netInvestedCapital > 0
       ? (summary.totalFees / summary.netInvestedCapital) * 100
       : 0;
+
+  const [stRate, setStRate] = useState<number>(DEFAULT_ST_RATE);
+
+  useEffect(() => {
+    const saved = parseFloat(localStorage.getItem(ST_RATE_KEY) || "");
+    if (Number.isFinite(saved)) setStRate(saved);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(ST_RATE_KEY, String(stRate));
+  }, [stRate]);
+
+  const taxEstimate = useMemo(() => {
+    const empty = () => ({ gainUsd: 0, gainInr: 0, taxUsd: 0, taxInr: 0 });
+    const buckets = { short: empty(), long: empty() };
+    // Accumulate the INR gain per category, plus the USD-equivalent at each sale-date rate
+    for (const t of summary.realizedTrades) {
+      const sellFx = t.sellFxRate || 0;
+      const buyFx = t.buyFxRate || sellFx;
+      if (!sellFx || t.proceeds === undefined) continue;
+      const gainInr = t.proceeds * sellFx - t.costBasis * buyFx;
+      const b = t.taxType === "LONG_TERM" ? buckets.long : buckets.short;
+      b.gainInr += gainInr;
+      b.gainUsd += gainInr / sellFx;
+    }
+    const finalize = (b: ReturnType<typeof empty>, rate: number) => {
+      // Losses offset gains within the category; no tax if the net is negative.
+      if (b.gainInr > 0) {
+        b.taxInr = (b.gainInr * rate) / 100;
+        b.taxUsd = (b.gainUsd * rate) / 100;
+      }
+      return b;
+    };
+    return {
+      short: finalize(buckets.short, stRate),
+      long: finalize(buckets.long, LT_RATE),
+    };
+  }, [summary.realizedTrades, stRate]);
+
+  const currentFxRate =
+    summary.usdInrRate ||
+    summary.realizedTrades.find((t) => t.sellFxRate)?.sellFxRate ||
+    83.5;
+
+  const totalReturnUsd = summary.totalReturnAmount;
+  const totalReturnInr = totalReturnUsd * currentFxRate;
+  const totalTaxUsd = taxEstimate.short.taxUsd + taxEstimate.long.taxUsd;
+  const totalTaxInr = taxEstimate.short.taxInr + taxEstimate.long.taxInr;
+  const totalRealizedGainInr = taxEstimate.short.gainInr + taxEstimate.long.gainInr;
+  const taxAdjustedReturn = totalReturnUsd - totalTaxUsd;
+  const taxAdjustedReturnInr = totalReturnInr - totalTaxInr;
+  const taxAdjustedReturnPercent =
+    summary.netInvestedCapital > 0
+      ? (taxAdjustedReturn / summary.netInvestedCapital) * 100
+      : 0;
+
+  // Pagination for TWR Sub-Periods
+  const [twrPage, setTwrPage] = useState(1);
+  const [twrPageSize, setTwrPageSize] = useState(10);
+  const [isTwrFetching, setIsTwrFetching] = useState(false);
+  const totalTwr = summary.twrSubPeriods.length;
+  const localTwrPages = Math.max(1, Math.ceil(totalTwr / twrPageSize));
+
+  // Server-side TWR state
+  const [serverTwr, setServerTwr] = useState<{
+    subPeriods: typeof summary.twrSubPeriods;
+    total: number;
+    totalPages: number;
+  } | null>(null);
+
+  const safeTwrPage = Math.min(twrPage, serverTwr ? serverTwr.totalPages : localTwrPages);
+  const twrStartIndex = (safeTwrPage - 1) * twrPageSize;
+  const twrEndIndex = Math.min(twrStartIndex + twrPageSize, totalTwr);
+  const localPaginatedTwr = useMemo(() => {
+    return summary.twrSubPeriods.slice(twrStartIndex, twrEndIndex);
+  }, [summary.twrSubPeriods, twrStartIndex, twrEndIndex]);
+
+  useEffect(() => {
+    if (!portfolioId) {
+      setServerTwr(null);
+      return;
+    }
+    let isCancelled = false;
+    setIsTwrFetching(true);
+    const params = new URLSearchParams({
+      id: portfolioId,
+      resource: "twr",
+      page: String(twrPage),
+      pageSize: String(twrPageSize),
+    });
+
+    fetch(`/api/portfolios?${params.toString()}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Server TWR fetch failed");
+        return res.json();
+      })
+      .then((data) => {
+        if (isCancelled) return;
+        if (data && Array.isArray(data.twrSubPeriods) && data.pagination) {
+          setServerTwr({
+            subPeriods: data.twrSubPeriods,
+            total: data.pagination.total,
+            totalPages: data.pagination.totalPages,
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn("[MetricsDetail] Server TWR fetch failed, using local:", err);
+      })
+      .finally(() => {
+        if (!isCancelled) setIsTwrFetching(false);
+      });
+
+    return () => { isCancelled = true; };
+  }, [portfolioId, twrPage, twrPageSize, summary]);
+
+  const displayTwr = serverTwr ? serverTwr.subPeriods : localPaginatedTwr;
+  const displayTwrTotal = serverTwr ? serverTwr.total : totalTwr;
+  const displayTwrTotalPages = serverTwr ? serverTwr.totalPages : localTwrPages;
+
+  // Pagination & Filtering for Realized Trades
+  const [tradesPage, setTradesPage] = useState(1);
+  const [tradesPageSize, setTradesPageSize] = useState(10);
+  const [tradesFilter, setTradesFilter] = useState<"ALL" | "SHORT_TERM" | "LONG_TERM">("ALL");
+  const [isTradesFetching, setIsTradesFetching] = useState(false);
+
+  const filteredTrades = useMemo(() => {
+    if (tradesFilter === "ALL") return summary.realizedTrades;
+    return summary.realizedTrades.filter((t) => t.taxType === tradesFilter);
+  }, [summary.realizedTrades, tradesFilter]);
+
+  useEffect(() => {
+    setTradesPage(1);
+  }, [tradesFilter]);
+
+  const localTradesTotal = filteredTrades.length;
+  const localTradesPages = Math.max(1, Math.ceil(localTradesTotal / tradesPageSize));
+
+  // Server-side Trades state
+  const [serverTrades, setServerTrades] = useState<{
+    trades: typeof summary.realizedTrades;
+    total: number;
+    totalPages: number;
+  } | null>(null);
+
+  const safeTradesPage = Math.min(tradesPage, serverTrades ? serverTrades.totalPages : localTradesPages);
+  const tradesStartIndex = (safeTradesPage - 1) * tradesPageSize;
+  const tradesEndIndex = Math.min(tradesStartIndex + tradesPageSize, localTradesTotal);
+  const localPaginatedTrades = useMemo(() => {
+    return filteredTrades.slice(tradesStartIndex, tradesEndIndex);
+  }, [filteredTrades, tradesStartIndex, tradesEndIndex]);
+
+  useEffect(() => {
+    if (!portfolioId) {
+      setServerTrades(null);
+      return;
+    }
+    let isCancelled = false;
+    setIsTradesFetching(true);
+    const params = new URLSearchParams({
+      id: portfolioId,
+      resource: "trades",
+      page: String(tradesPage),
+      pageSize: String(tradesPageSize),
+      taxType: tradesFilter,
+    });
+
+    fetch(`/api/portfolios?${params.toString()}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Server trades fetch failed");
+        return res.json();
+      })
+      .then((data) => {
+        if (isCancelled) return;
+        if (data && Array.isArray(data.realizedTrades) && data.pagination) {
+          setServerTrades({
+            trades: data.realizedTrades,
+            total: data.pagination.total,
+            totalPages: data.pagination.totalPages,
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn("[MetricsDetail] Server trades fetch failed, using local:", err);
+      })
+      .finally(() => {
+        if (!isCancelled) setIsTradesFetching(false);
+      });
+
+    return () => { isCancelled = true; };
+  }, [portfolioId, tradesPage, tradesPageSize, tradesFilter, summary]);
+
+  const displayTrades = serverTrades ? serverTrades.trades : localPaginatedTrades;
+  const displayTradesTotal = serverTrades ? serverTrades.total : localTradesTotal;
+  const displayTradesTotalPages = serverTrades ? serverTrades.totalPages : localTradesPages;
 
   return (
     <div className="space-y-6">
@@ -106,8 +311,16 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary }) => {
               Evaluates compounding performance from your first stock purchase date
             </p>
           </div>
-          <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 px-3 py-1 text-xs font-mono text-blue-300">
-            Formula: \(R_{"{TWR}"} = \prod (1 + R_i) - 1\)
+          <div className="flex items-center gap-2">
+            {isTwrFetching && (
+              <span className="flex items-center gap-1.5 text-[11px] font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full animate-pulse">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                Syncing page...
+              </span>
+            )}
+            <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 px-3 py-1 text-xs font-mono text-blue-300">
+              Formula: \(R_{"{TWR}"} = \prod (1 + R_i) - 1\)
+            </div>
           </div>
         </div>
 
@@ -125,22 +338,22 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary }) => {
                 <th className="px-3 py-2.5 text-right">Cumulative TWR</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60 text-slate-200">
-              {summary.twrSubPeriods.length === 0 ? (
+            <tbody className="divide-y border-slate-800/60 text-slate-200">
+              {displayTwr.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-6 text-center text-slate-500 text-xs">
                     No sub-period events generated yet.
                   </td>
                 </tr>
               ) : (
-                summary.twrSubPeriods.map((sp, idx) => {
+                displayTwr.map((sp, idx) => {
                   const isPeriodPositive = sp.periodReturn >= 0;
                   const isCumPositive = sp.cumulativeTWR >= 0;
 
                   return (
-                    <tr key={idx} className="hover:bg-slate-800/40 transition">
+                    <tr key={twrStartIndex + idx} className="hover:bg-slate-800/40 transition">
                       <td className="px-3 py-2.5 font-mono text-slate-400">
-                        #{idx + 1}
+                        #{twrStartIndex + idx + 1}
                       </td>
                       <td className="px-3 py-2.5 font-mono text-slate-300">
                         {formatDate(sp.startDate, "yyyy-MM-dd")}
@@ -188,6 +401,18 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary }) => {
             </tbody>
           </table>
         </div>
+
+        {/* TWR Sub-Periods Pagination */}
+        <TablePagination
+          currentPage={safeTwrPage}
+          totalPages={displayTwrTotalPages}
+          totalItems={displayTwrTotal}
+          pageSize={twrPageSize}
+          onPageChange={setTwrPage}
+          onPageSizeChange={setTwrPageSize}
+          pageSizeOptions={[10, 25, 50]}
+          label="sub-periods"
+        />
       </div>
 
       {/* 3. Realized Trades & Capital Gains Tax Table */}
@@ -202,9 +427,38 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary }) => {
               Indian foreign equity classification: &gt;24 months (&gt;730 days) qualifies as Long-Term. Short-term capital gains are taxed at your individual income tax slab rate (US dividends are subject to 25% flat withholding tax at source).
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {isTradesFetching && (
+              <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full animate-pulse">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                Syncing page...
+              </span>
+            )}
+            <div className="flex items-center gap-1 rounded-lg bg-slate-950/80 p-0.5 border border-slate-800 text-[11px]">
+              {(
+                [
+                  { label: "All", value: "ALL" },
+                  { label: "Short Term", value: "SHORT_TERM" },
+                  { label: "Long Term", value: "LONG_TERM" },
+                ] as const
+              ).map((f) => (
+                <button
+                  key={f.value}
+                  onClick={() => setTradesFilter(f.value)}
+                  className={`rounded px-2 py-0.5 font-medium transition ${
+                    tradesFilter === f.value
+                      ? "bg-slate-800 text-white shadow-sm"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
             <span className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 text-xs font-mono font-bold text-emerald-400">
-              Total Realized Gain: {formatCurrency(summary.realizedPnL, { showPlusSign: true })}
+              Total Realized Gain: {formatCurrency(summary.realizedPnL, { showPlusSign: true })}{" "}
+              ({formatCurrency(totalRealizedGainInr, { currency: "INR", showPlusSign: true })})
             </span>
           </div>
         </div>
@@ -224,14 +478,16 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-200">
-              {summary.realizedTrades.length === 0 ? (
+              {displayTrades.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-6 text-center text-slate-500 text-xs">
-                    No sell transactions executed in this portfolio yet.
+                    {summary.realizedTrades.length === 0
+                      ? "No sell transactions executed in this portfolio yet."
+                      : "No trades matching the selected tax category."}
                   </td>
                 </tr>
               ) : (
-                summary.realizedTrades.map((trade) => {
+                displayTrades.map((trade) => {
                   const isGain = trade.realizedGain >= 0;
 
                   return (
@@ -280,9 +536,190 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary }) => {
             </tbody>
           </table>
         </div>
+
+        {/* Realized Trades Pagination */}
+        <TablePagination
+          currentPage={safeTradesPage}
+          totalPages={displayTradesTotalPages}
+          totalItems={displayTradesTotal}
+          pageSize={tradesPageSize}
+          onPageChange={setTradesPage}
+          onPageSizeChange={setTradesPageSize}
+          pageSizeOptions={[10, 25, 50]}
+          label="realized trades"
+        />
       </div>
 
-      {/* 4. Portfolio Volatility & Risk Metrics */}
+      {/* 3b. Estimated Tax Paid (USD & INR) */}
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-5 shadow-xl space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <Landmark className="h-4 w-4 text-rose-400" />
+              Estimated Capital Gains Tax Paid
+            </h3>
+            <p className="text-xs text-slate-400 max-w-2xl">
+              Gains are converted to ₹ using the USD/INR rate on each buy date (cost) and sell date
+              (proceeds). Losses offset gains within the same category. Long-term applies only to
+              holdings over 2 years. Estimates only, not tax advice.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="rounded-lg bg-rose-500/10 border border-rose-500/20 px-3 py-1 text-xs font-mono font-bold text-rose-400">
+              Total Tax Paid: {formatCurrency(totalTaxUsd)} ({formatCurrency(totalTaxInr, { currency: "INR" })})
+            </span>
+            <label className="flex items-center gap-2 text-xs text-slate-300">
+              Short-term rate (%)
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.5}
+                value={stRate}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  setStRate(Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 0);
+                }}
+                className="w-20 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-right font-mono text-white"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-slate-800 bg-slate-900/80 text-slate-400 text-[11px]">
+              <tr>
+                <th className="px-3 py-2.5">Category</th>
+                <th className="px-3 py-2.5 text-right">Rate</th>
+                <th className="px-3 py-2.5 text-right">Net Gain ($)</th>
+                <th className="px-3 py-2.5 text-right">Net Gain (₹)</th>
+                <th className="px-3 py-2.5 text-right">Tax Paid ($)</th>
+                <th className="px-3 py-2.5 text-right">Tax Paid (₹)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 text-slate-200 font-mono">
+              {[
+                { label: "Short Term (≤ 2 yrs)", rate: stRate, s: taxEstimate.short },
+                { label: "Long Term (> 2 yrs)", rate: LT_RATE, s: taxEstimate.long },
+              ].map((row) => (
+                <tr key={row.label}>
+                  <td className="px-3 py-2.5 font-sans">{row.label}</td>
+                  <td className="px-3 py-2.5 text-right">{row.rate}%</td>
+                  <td className="px-3 py-2.5 text-right">
+                    {formatCurrency(row.s.gainUsd, { showPlusSign: true })}
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    {formatCurrency(row.s.gainInr, { currency: "INR", showPlusSign: true })}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-rose-300">
+                    {formatCurrency(row.s.taxUsd)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-rose-300">
+                    {formatCurrency(row.s.taxInr, { currency: "INR" })}
+                  </td>
+                </tr>
+              ))}
+              <tr className="bg-slate-900/60 font-bold">
+                <td className="px-3 py-2.5 font-sans text-white">Total</td>
+                <td />
+                <td className="px-3 py-2.5 text-right">
+                  {formatCurrency(taxEstimate.short.gainUsd + taxEstimate.long.gainUsd, {
+                    showPlusSign: true,
+                  })}
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  {formatCurrency(taxEstimate.short.gainInr + taxEstimate.long.gainInr, {
+                    currency: "INR",
+                    showPlusSign: true,
+                  })}
+                </td>
+                <td className="px-3 py-2.5 text-right text-rose-400">
+                  {formatCurrency(taxEstimate.short.taxUsd + taxEstimate.long.taxUsd)}
+                </td>
+                <td className="px-3 py-2.5 text-right text-rose-400">
+                  {formatCurrency(taxEstimate.short.taxInr + taxEstimate.long.taxInr, {
+                    currency: "INR",
+                  })}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {/* Card 1: Total Return */}
+          <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-4">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-semibold text-slate-300">Total Return</span>
+              <DollarSign className="h-4 w-4 text-emerald-400" />
+            </div>
+            <div
+              className={`mt-2 text-xl font-bold font-mono ${
+                totalReturnUsd >= 0 ? "text-emerald-400" : "text-rose-400"
+              }`}
+            >
+              {formatCurrency(totalReturnUsd, { showPlusSign: true })}
+            </div>
+            <div className="mt-0.5 text-xs font-mono font-medium text-slate-300">
+              {formatCurrency(totalReturnInr, { currency: "INR", showPlusSign: true })}
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-500">
+              {formatPercent(summary.totalReturnPercent)} on invested capital
+            </p>
+          </div>
+
+          {/* Card 2: Total Tax Paid */}
+          <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-4">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-semibold text-slate-300">Total Tax Paid</span>
+              <Receipt className="h-4 w-4 text-rose-400" />
+            </div>
+            <div className="mt-2 text-xl font-bold font-mono text-rose-400">
+              -{formatCurrency(totalTaxUsd)}
+            </div>
+            <div className="mt-0.5 text-xs font-mono font-medium text-rose-300/90">
+              -{formatCurrency(totalTaxInr, { currency: "INR" })}
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-500">
+              Short-term ({stRate}%): {formatCurrency(taxEstimate.short.taxUsd)} • Long-term ({LT_RATE}%): {formatCurrency(taxEstimate.long.taxUsd)}
+            </p>
+          </div>
+
+          {/* Card 3: Tax-Adjusted Return */}
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-semibold text-emerald-300">Tax-Adjusted Return</span>
+              <Landmark className="h-4 w-4 text-emerald-400" />
+            </div>
+            <div
+              className={`mt-2 text-xl font-bold font-mono ${
+                taxAdjustedReturn >= 0 ? "text-emerald-400" : "text-rose-400"
+              }`}
+            >
+              {formatCurrency(taxAdjustedReturn, { showPlusSign: true })}
+            </div>
+            <div
+              className={`mt-0.5 text-xs font-mono font-medium ${
+                taxAdjustedReturnInr >= 0 ? "text-emerald-300/90" : "text-rose-300/90"
+              }`}
+            >
+              {formatCurrency(taxAdjustedReturnInr, { currency: "INR", showPlusSign: true })}
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              {formatPercent(taxAdjustedReturnPercent)} on invested capital
+            </p>
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Tax-adjusted return = total return (realized + unrealized + dividends) minus estimated
+          capital gains tax. Unrealized gains are not taxed until sold.
+        </p>
+        <p className="text-[11px] text-slate-500">
+          Short-term default is 20% (valid until March 2027) and can be changed above. Long-term is
+          fixed at {LT_RATE}%. Tax in $ is the ₹ tax converted at each sale-date rate.
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {/* Sharpe Ratio */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-xl">

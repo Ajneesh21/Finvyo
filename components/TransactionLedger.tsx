@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Transaction } from "@/lib/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { TablePagination } from "./TablePagination";
 import {
   Search,
   Download,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 
 interface TransactionLedgerProps {
+  portfolioId?: string;
   transactions: Transaction[];
   onAddTransaction: () => void;
   onEditTransaction: (tx: Transaction) => void;
@@ -22,6 +24,7 @@ interface TransactionLedgerProps {
 }
 
 export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
+  portfolioId,
   transactions,
   onAddTransaction,
   onEditTransaction,
@@ -32,6 +35,72 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
   const [filterType, setFilterType] = useState<string>("ALL");
   const [sortDesc, setSortDesc] = useState(true);
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Server-side pagination state
+  const [serverData, setServerData] = useState<{
+    transactions: Transaction[];
+    total: number;
+    totalPages: number;
+    totalFees: number | null;
+  } | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+
+  // Reset to page 1 whenever search, filter, or sorting changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterType, sortDesc]);
+
+  // Fetch from server on page / filter / search / sort / portfolio change
+  useEffect(() => {
+    if (!portfolioId) {
+      setServerData(null);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsFetching(true);
+
+    const params = new URLSearchParams({
+      id: portfolioId,
+      resource: "transactions",
+      page: String(currentPage),
+      pageSize: String(pageSize),
+      sort: sortDesc ? "desc" : "asc",
+    });
+    if (search.trim()) params.set("search", search.trim());
+    if (filterType !== "ALL") params.set("type", filterType);
+
+    fetch(`/api/portfolios?${params.toString()}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch page from server");
+        return res.json();
+      })
+      .then((data) => {
+        if (isCancelled) return;
+        if (data && Array.isArray(data.transactions) && data.pagination) {
+          setServerData({
+            transactions: data.transactions,
+            total: data.pagination.total,
+            totalPages: data.pagination.totalPages,
+            totalFees: typeof data.totalFees === "number" ? data.totalFees : null,
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn("[TransactionLedger] Server fetch failed, using local cache:", err);
+      })
+      .finally(() => {
+        if (!isCancelled) setIsFetching(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [portfolioId, currentPage, pageSize, search, filterType, sortDesc, transactions]);
+
+  // Client-side fallback computation
   const filtered = useMemo(() => {
     return transactions
       .filter((t) => {
@@ -52,6 +121,19 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
       });
   }, [transactions, search, filterType, sortDesc]);
 
+  const localTotalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(currentPage, serverData ? serverData.totalPages : localTotalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, filtered.length);
+
+  const localPaginatedTransactions = useMemo(() => {
+    return filtered.slice(startIndex, endIndex);
+  }, [filtered, startIndex, endIndex]);
+
+  const displayTransactions = serverData ? serverData.transactions : localPaginatedTransactions;
+  const displayTotal = serverData ? serverData.total : filtered.length;
+  const displayTotalPages = serverData ? serverData.totalPages : localTotalPages;
+
   const totalCommissions = useMemo(() => {
     return transactions.reduce((sum, t) => {
       if (t.type === "FEE" || t.type === "TAX") {
@@ -60,6 +142,10 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
       return sum + (t.fee || 0);
     }, 0);
   }, [transactions]);
+
+  const displayFees = serverData?.totalFees !== null && serverData?.totalFees !== undefined
+    ? serverData.totalFees
+    : totalCommissions;
 
   const typePills = [
     { label: "All Activity", value: "ALL" },
@@ -77,7 +163,12 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
         <div>
           <h3 className="text-base font-bold text-white flex items-center gap-2">
             <FileText className="h-4 w-4 text-blue-400" />
-            Transaction Ledger ({transactions.length} Records)
+            Transaction Ledger ({displayTotal} Records)
+            {isFetching && (
+              <span className="text-[10px] text-blue-400 font-mono animate-pulse bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded">
+                Fetching page...
+              </span>
+            )}
           </h3>
           <p className="text-xs text-slate-400">
             Chronological audit trail of all orders, deposits, dividend payments, and commission charges
@@ -88,7 +179,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
         <div className="flex items-center gap-2">
           <div className="hidden sm:flex items-center gap-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-1 text-xs font-mono font-medium text-amber-400">
             <Receipt className="h-3.5 w-3.5" />
-            <span>Total Fees: {formatCurrency(totalCommissions)}</span>
+            <span>Total Fees: {formatCurrency(displayFees)}</span>
           </div>
 
           <button
@@ -162,14 +253,14 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60 text-slate-200">
-            {filtered.length === 0 ? (
+            {displayTransactions.length === 0 ? (
               <tr>
                 <td colSpan={9} className="py-8 text-center text-slate-500 text-xs">
                   No matching transactions found.
                 </td>
               </tr>
             ) : (
-              filtered.map((tx) => {
+              displayTransactions.map((tx) => {
                 const isBuy = tx.type === "BUY";
                 const isSell = tx.type === "SELL";
                 const isDiv = tx.type === "DIVIDEND";
@@ -261,6 +352,18 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      <TablePagination
+        currentPage={safePage}
+        totalPages={displayTotalPages}
+        totalItems={displayTotal}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        pageSizeOptions={[10, 25, 50, 100]}
+        label="transactions"
+      />
     </div>
   );
 };

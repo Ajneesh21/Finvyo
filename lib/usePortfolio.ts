@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Transaction, PortfolioSummary } from "@/lib/types";
 import { StoredPortfolio } from "@/lib/storage";
 
@@ -24,9 +24,14 @@ export function usePortfolio() {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
+  const currentPortfolioIdRef = useRef<string>(currentPortfolioId);
+  currentPortfolioIdRef.current = currentPortfolioId;
+
+  const hasMountedRef = useRef<boolean>(false);
+
   // Calculate portfolio summary
   const calculatePortfolio = useCallback(
-    async (txList: Transaction[], showLoader = false) => {
+    async (txList: Transaction[], showLoader = false, portId?: string) => {
       if (!txList || txList.length === 0) {
         setSummary(null);
         setCalculationError(null);
@@ -40,10 +45,11 @@ export function usePortfolio() {
       setCalculationError(null);
 
       try {
+        const pId = portId || currentPortfolioIdRef.current;
         const res = await fetch("/api/calculate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transactions: txList }),
+          body: JSON.stringify({ transactions: txList, portfolioId: pId }),
         });
 
         const data = await res.json();
@@ -71,8 +77,11 @@ export function usePortfolio() {
     []
   );
 
-  // Load portfolios on mount
+  // Load portfolios on mount (strictly once)
   useEffect(() => {
+    if (hasMountedRef.current) return;
+    hasMountedRef.current = true;
+
     async function loadInitialData() {
       try {
         const res = await fetch("/api/portfolios");
@@ -85,7 +94,19 @@ export function usePortfolio() {
           setCurrentPortfolioId(defaultPort.id);
           setPortfolioName(defaultPort.name);
           setTransactions(defaultPort.transactions);
-          calculatePortfolio(defaultPort.transactions, true);
+
+          // If the stored portfolio already has a precomputed summary, render it IMMEDIATELY (0ms wait)!
+          if (defaultPort.lastComputedSummary) {
+            setSummary(defaultPort.lastComputedSummary);
+            setIsLoading(false);
+            if (defaultPort.lastCalculatedAt) {
+              setLastUpdated(new Date(defaultPort.lastCalculatedAt).toLocaleTimeString());
+            }
+            // Revalidate quotes quietly in the background without a blocking screen spinner
+            calculatePortfolio(defaultPort.transactions, false, defaultPort.id);
+          } else {
+            calculatePortfolio(defaultPort.transactions, true, defaultPort.id);
+          }
         } else {
           setIsLoading(false);
         }
@@ -105,7 +126,14 @@ export function usePortfolio() {
       setCurrentPortfolioId(p.id);
       setPortfolioName(p.name);
       setTransactions(p.transactions);
-      calculatePortfolio(p.transactions, true);
+
+      if (p.lastComputedSummary) {
+        setSummary(p.lastComputedSummary);
+        setIsLoading(false);
+        calculatePortfolio(p.transactions, false, p.id);
+      } else {
+        calculatePortfolio(p.transactions, true, p.id);
+      }
 
       // Persist active default in background
       try {

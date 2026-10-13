@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { Transaction } from "./types";
+import { Transaction, PortfolioSummary } from "./types";
 import { getCachedData, setCachedData, deleteCachedData } from "./redis";
 
 export interface StoredPortfolio {
@@ -11,6 +11,8 @@ export interface StoredPortfolio {
   transactions: Transaction[];
   sourceFileName?: string;
   isDefault?: boolean;
+  lastComputedSummary?: PortfolioSummary;
+  lastCalculatedAt?: string;
 }
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -146,3 +148,27 @@ export async function deletePortfolio(id: string): Promise<boolean> {
     return false;
   });
 }
+
+export async function updatePortfolioSummary(
+  id: string,
+  summary: PortfolioSummary
+): Promise<void> {
+  return withLock(async () => {
+    ensureStorage();
+    try {
+      if (fs.existsSync(STORAGE_FILE)) {
+        const raw = fs.readFileSync(STORAGE_FILE, "utf-8");
+        const map = JSON.parse(raw) as Record<string, StoredPortfolio>;
+        if (map[id]) {
+          map[id].lastComputedSummary = summary;
+          map[id].lastCalculatedAt = new Date().toISOString();
+          atomicWriteFileSync(STORAGE_FILE, JSON.stringify(map, null, 2));
+          await setCachedData("portfolios:all", Object.values(map), 60);
+        }
+      }
+    } catch (err) {
+      console.error("[Storage] Error updating portfolio summary:", err instanceof Error ? err.message : String(err));
+    }
+  });
+}
+

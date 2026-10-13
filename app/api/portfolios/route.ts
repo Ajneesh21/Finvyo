@@ -33,6 +33,108 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    const resource = searchParams.get("resource") || "transactions";
+    const pageStr = searchParams.get("page");
+    const pageSizeStr = searchParams.get("pageSize");
+    const search = searchParams.get("search")?.toLowerCase().trim();
+    const type = searchParams.get("type");
+    const sort = searchParams.get("sort") || "desc";
+    const taxType = searchParams.get("taxType");
+
+    // If requesting a specific portfolio's paginated resources
+    if (id && pageStr) {
+      const portfolio = await getPortfolioById(id);
+      if (!portfolio) {
+        return NextResponse.json({ error: "Portfolio not found" }, { status: 404 });
+      }
+
+      const page = Math.max(1, parseInt(pageStr, 10));
+
+      if (resource === "twr") {
+        const pageSize = Math.min(200, Math.max(1, parseInt(pageSizeStr || "10", 10)));
+        const allTwr = portfolio.lastComputedSummary?.twrSubPeriods || [];
+        const total = allTwr.length;
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const startIndex = (page - 1) * pageSize;
+        const paginatedTwr = allTwr.slice(startIndex, startIndex + pageSize);
+
+        return NextResponse.json({
+          id: portfolio.id,
+          name: portfolio.name,
+          twrSubPeriods: paginatedTwr,
+          pagination: { page, pageSize, total, totalPages },
+        });
+      }
+
+      if (resource === "trades") {
+        const pageSize = Math.min(200, Math.max(1, parseInt(pageSizeStr || "10", 10)));
+        let allTrades = portfolio.lastComputedSummary?.realizedTrades || [];
+        if (taxType && taxType !== "ALL") {
+          allTrades = allTrades.filter((t) => t.taxType === taxType);
+        }
+        const total = allTrades.length;
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const startIndex = (page - 1) * pageSize;
+        const paginatedTrades = allTrades.slice(startIndex, startIndex + pageSize);
+
+        return NextResponse.json({
+          id: portfolio.id,
+          name: portfolio.name,
+          realizedTrades: paginatedTrades,
+          pagination: { page, pageSize, total, totalPages },
+        });
+      }
+
+      // Default resource: transactions
+      const pageSize = Math.min(500, Math.max(1, parseInt(pageSizeStr || "25", 10)));
+      let txs = portfolio.transactions;
+      if (search) {
+        txs = txs.filter(
+          (t) =>
+            t.symbol.toLowerCase().includes(search) ||
+            (t.notes && t.notes.toLowerCase().includes(search)) ||
+            t.type.toLowerCase().includes(search)
+        );
+      }
+      if (type && type !== "ALL") {
+        txs = txs.filter((t) => t.type === type);
+      }
+
+      // Sort
+      txs = [...txs].sort((a, b) => {
+        return sort === "desc"
+          ? b.date.localeCompare(a.date)
+          : a.date.localeCompare(b.date);
+      });
+
+      const totalFees = txs.reduce((sum, t) => {
+        if (t.type === "FEE" || t.type === "TAX") {
+          return sum + Math.abs(t.amount || t.fee || 0);
+        }
+        return sum + (t.fee || 0);
+      }, 0);
+
+      const total = txs.length;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      const startIndex = (page - 1) * pageSize;
+      const paginatedTransactions = txs.slice(startIndex, startIndex + pageSize);
+
+      return NextResponse.json({
+        id: portfolio.id,
+        name: portfolio.name,
+        transactions: paginatedTransactions,
+        totalFees,
+        pagination: {
+          page,
+          pageSize,
+          total,
+          totalPages,
+        },
+      });
+    }
+
     const list = await getAllPortfolios();
     return NextResponse.json({ portfolios: list });
   } catch (err: unknown) {
@@ -90,6 +192,8 @@ export async function POST(req: NextRequest) {
       transactions: validation.validatedList,
       sourceFileName: typeof body.sourceFileName === "string" ? body.sourceFileName.substring(0, 150) : undefined,
       isDefault: body.isDefault !== undefined ? Boolean(body.isDefault) : true,
+      lastComputedSummary: body.lastComputedSummary || undefined,
+      lastCalculatedAt: body.lastCalculatedAt || undefined,
     };
 
     const saved = await savePortfolio(portfolio);

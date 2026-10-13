@@ -94,28 +94,58 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
 
           {sp500 && (
-            <div className="flex items-center gap-1.5 border-l border-slate-800 pl-3">
+            <div
+              className="flex items-center gap-1.5 border-l border-slate-800 pl-3"
+              title={`S&P 500: Today ${formatPercent(sp500.dayChangePercent ?? 0)} | Holding period total return ${formatPercent(sp500.totalReturnPercent)}`}
+            >
               <span className="text-slate-400">S&P 500:</span>
-              <span className="font-semibold font-mono text-blue-400">
-                {formatPercent(sp500.totalReturnPercent)}
+              <span
+                className={`font-semibold font-mono ${
+                  (sp500.dayChangePercent ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"
+                }`}
+              >
+                {formatPercent(sp500.dayChangePercent ?? sp500.totalReturnPercent, { showPlusSign: true })}
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono hidden xl:inline">
+                today ({formatPercent(sp500.totalReturnPercent)} total)
               </span>
             </div>
           )}
 
           {nasdaq && (
-            <div className="hidden items-center gap-1.5 border-l border-slate-800 pl-3 sm:flex">
+            <div
+              className="hidden items-center gap-1.5 border-l border-slate-800 pl-3 sm:flex"
+              title={`Nasdaq 100: Today ${formatPercent(nasdaq.dayChangePercent ?? 0)} | Holding period total return ${formatPercent(nasdaq.totalReturnPercent)}`}
+            >
               <span className="text-slate-400">Nasdaq:</span>
-              <span className="font-semibold font-mono text-purple-400">
-                {formatPercent(nasdaq.totalReturnPercent)}
+              <span
+                className={`font-semibold font-mono ${
+                  (nasdaq.dayChangePercent ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"
+                }`}
+              >
+                {formatPercent(nasdaq.dayChangePercent ?? nasdaq.totalReturnPercent, { showPlusSign: true })}
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono hidden xl:inline">
+                today ({formatPercent(nasdaq.totalReturnPercent)} total)
               </span>
             </div>
           )}
 
           {nifty && (
-            <div className="hidden items-center gap-1.5 border-l border-slate-800 pl-3 md:flex">
+            <div
+              className="hidden items-center gap-1.5 border-l border-slate-800 pl-3 md:flex"
+              title={`Nifty 50: Today ${formatPercent(nifty.dayChangePercent ?? 0)} | Holding period total return ${formatPercent(nifty.totalReturnPercent)}`}
+            >
               <span className="text-slate-400">Nifty 50:</span>
-              <span className="font-semibold font-mono text-amber-400">
-                {formatPercent(nifty.totalReturnPercent)}
+              <span
+                className={`font-semibold font-mono ${
+                  (nifty.dayChangePercent ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"
+                }`}
+              >
+                {formatPercent(nifty.dayChangePercent ?? nifty.totalReturnPercent, { showPlusSign: true })}
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono hidden xl:inline">
+                today ({formatPercent(nifty.totalReturnPercent)} total)
               </span>
             </div>
           )}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { computePortfolioSummary } from "@/lib/portfolio-engine";
 import { checkRateLimit } from "@/lib/rate-limiter";
 import { validateTransactionsList } from "@/lib/validation";
+import { updatePortfolioSummary } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -46,6 +47,13 @@ export async function POST(req: NextRequest) {
     }
 
     const summary = await computePortfolioSummary(validation.validatedList);
+
+    if (typeof body?.portfolioId === "string" && body.portfolioId.trim()) {
+      updatePortfolioSummary(body.portfolioId.trim(), summary).catch((err) => {
+        console.error("[Calculate API] Failed to update stored portfolio summary:", err);
+      });
+    }
+
     return NextResponse.json({ summary });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

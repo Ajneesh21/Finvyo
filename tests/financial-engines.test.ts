@@ -7,6 +7,14 @@ import { Transaction, StockQuote } from "../lib/types";
 import { calculateWACC, calculateDCF } from "../lib/dcf-engine";
 import { FinancialData, DCFAssumptions } from "../lib/dcf-types";
 import { validateTransaction, validateTransactionsList } from "../lib/validation";
+import {
+  saveHistoricalPrices,
+  getCachedHistoricalPrices,
+  getCachedDateRange,
+} from "../lib/historical-store";
+import { savePortfolio } from "../lib/storage";
+import { GET as getPortfoliosApi } from "../app/api/portfolios/route";
+import { NextRequest } from "next/server";
 
 describe("XIRR Engine", () => {
   it("should calculate exact annual return for single 1-year investment", () => {
@@ -690,4 +698,200 @@ describe("Portfolio Timeline Continuity & Weekend Handling", () => {
     assert.ok(daysOfWeek.includes(6), "Timeline must include Saturday (day 6)");
   });
 });
+
+describe("Persistent Historical Price Store & Caching", () => {
+  it("should persist and retrieve immutable historical stock prices", async () => {
+    const testSymbol = "TEST_MSFT";
+    const points = [
+      { date: "2026-01-15", close: 420.5 },
+      { date: "2026-01-16", close: 425.0 },
+      { date: "2026-01-17", close: 422.3 },
+    ];
+
+    await saveHistoricalPrices(testSymbol, points, false);
+
+    const cached = getCachedHistoricalPrices(testSymbol, "2026-01-15", false);
+    assert.ok(cached !== null, "Expected cached record to exist");
+    assert.equal(cached.points.length, 3);
+    assert.equal(cached.points[0].close, 420.5);
+    assert.equal(cached.points[1].close, 425.0);
+    assert.equal(cached.points[2].close, 422.3);
+
+    const range = getCachedDateRange(testSymbol, false);
+    assert.ok(range !== null);
+    assert.equal(range.earliestDate, "2026-01-15");
+    assert.equal(range.latestDate, "2026-01-17");
+    assert.equal(range.count, 3);
+  });
+
+  it("should merge new dates without overwriting past immutable prices", async () => {
+    const testSymbol = "TEST_AAPL";
+    const initialPoints = [
+      { date: "2026-01-10", close: 180.0 },
+      { date: "2026-01-11", close: 182.5 },
+    ];
+    await saveHistoricalPrices(testSymbol, initialPoints, true);
+
+    const newPoints = [
+      { date: "2026-01-12", close: 185.0 },
+      { date: "2026-01-13", close: 184.2 },
+    ];
+    await saveHistoricalPrices(testSymbol, newPoints, true);
+
+    const cached = getCachedHistoricalPrices(testSymbol, "2026-01-10", true);
+    assert.ok(cached !== null);
+    assert.equal(cached.points.length, 4);
+    assert.equal(cached.points[0].date, "2026-01-10");
+    assert.equal(cached.points[0].close, 180.0);
+    assert.equal(cached.points[3].date, "2026-01-13");
+    assert.equal(cached.points[3].close, 184.2);
+  });
+});
+
+describe("Table Pagination Engine", () => {
+  it("should correctly compute pages and slice lists within boundary ranges", () => {
+    const items = Array.from({ length: 95 }, (_, i) => ({ id: `item-${i + 1}`, value: i + 1 }));
+    const pageSize = 25;
+    const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+
+    assert.equal(totalPages, 4);
+
+    // Page 1
+    const p1Start = (1 - 1) * pageSize;
+    const p1Items = items.slice(p1Start, p1Start + pageSize);
+    assert.equal(p1Items.length, 25);
+    assert.equal(p1Items[0].id, "item-1");
+    assert.equal(p1Items[24].id, "item-25");
+
+    // Page 4 (last page, partial)
+    const p4Start = (4 - 1) * pageSize;
+    const p4Items = items.slice(p4Start, p4Start + pageSize);
+    assert.equal(p4Items.length, 20);
+    assert.equal(p4Items[0].id, "item-76");
+    assert.equal(p4Items[19].id, "item-95");
+  });
+
+  it("should handle empty or single-item lists safely", () => {
+    const empty: number[] = [];
+    const totalPagesEmpty = Math.max(1, Math.ceil(empty.length / 10));
+    assert.equal(totalPagesEmpty, 1);
+    assert.equal(empty.slice(0, 10).length, 0);
+
+    const single = [{ id: "tx-1" }];
+    const totalPagesSingle = Math.max(1, Math.ceil(single.length / 10));
+    assert.equal(totalPagesSingle, 1);
+    assert.equal(single.slice(0, 10).length, 1);
+  });
+});
+
+describe("Server-Side Pagination API (/api/portfolios)", () => {
+  const testPortfolioId = "test-pagination-port-1";
+
+  it("should setup test portfolio with transactions, twr sub-periods, and trades", async () => {
+    const txs: Transaction[] = Array.from({ length: 35 }, (_, i) => ({
+      id: `tx-${i + 1}`,
+      date: `2025-01-${String((i % 28) + 1).padStart(2, "0")}`,
+      type: i % 2 === 0 ? "BUY" : "SELL",
+      symbol: i % 3 === 0 ? "NVDA" : "AAPL",
+      shares: 10,
+      price: 150 + i,
+      amount: (150 + i) * 10,
+      fee: 1.5,
+    }));
+
+    const twrSubPeriods = Array.from({ length: 25 }, (_, i) => ({
+      startDate: `2025-01-${String((i % 28) + 1).padStart(2, "0")}`,
+      endDate: `2025-01-${String((i % 28) + 2).padStart(2, "0")}`,
+      startValue: 1000 + i * 50,
+      endValue: 1050 + i * 50,
+      cashFlow: 0,
+      periodReturn: 0.05,
+      cumulativeTWR: 0.05 * (i + 1),
+    }));
+
+    const realizedTrades = Array.from({ length: 22 }, (_, i) => ({
+      id: `trade-${i + 1}`,
+      symbol: i % 2 === 0 ? "AAPL" : "MSFT",
+      shares: 5,
+      buyDate: "2024-01-01",
+      sellDate: "2025-01-01",
+      buyPrice: 100,
+      sellPrice: 120 + i,
+      costBasis: 500,
+      proceeds: (120 + i) * 5,
+      realizedGain: (120 + i) * 5 - 500,
+      realizedGainPercent: (((120 + i) * 5 - 500) / 500) * 100,
+      holdingPeriodDays: i % 2 === 0 ? 800 : 180,
+      taxType: (i % 2 === 0 ? "LONG_TERM" : "SHORT_TERM") as "LONG_TERM" | "SHORT_TERM",
+    }));
+
+    await savePortfolio({
+      id: testPortfolioId,
+      name: "Pagination Test Portfolio",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      transactions: txs,
+      lastComputedSummary: {
+        twrSubPeriods,
+        realizedTrades,
+      } as any,
+    });
+  });
+
+  it("should paginate transactions on-demand from the server", async () => {
+    // Request page 1 with pageSize=10
+    const req1 = new NextRequest(
+      `http://localhost:3000/api/portfolios?id=${testPortfolioId}&resource=transactions&page=1&pageSize=10`
+    );
+    const res1 = await getPortfoliosApi(req1);
+    assert.equal(res1.status, 200);
+    const data1 = await res1.json();
+    assert.equal(data1.pagination.page, 1);
+    assert.equal(data1.pagination.pageSize, 10);
+    assert.equal(data1.pagination.total, 35);
+    assert.equal(data1.pagination.totalPages, 4);
+    assert.equal(data1.transactions.length, 10);
+
+    // Request page 4 (last page) with pageSize=10
+    const req4 = new NextRequest(
+      `http://localhost:3000/api/portfolios?id=${testPortfolioId}&resource=transactions&page=4&pageSize=10`
+    );
+    const res4 = await getPortfoliosApi(req4);
+    const data4 = await res4.json();
+    assert.equal(data4.pagination.page, 4);
+    assert.equal(data4.transactions.length, 5);
+  });
+
+  it("should paginate and filter TWR sub-periods from the server", async () => {
+    const req = new NextRequest(
+      `http://localhost:3000/api/portfolios?id=${testPortfolioId}&resource=twr&page=2&pageSize=10`
+    );
+    const res = await getPortfoliosApi(req);
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.pagination.page, 2);
+    assert.equal(data.pagination.pageSize, 10);
+    assert.equal(data.pagination.total, 25);
+    assert.equal(data.pagination.totalPages, 3);
+    assert.equal(data.twrSubPeriods.length, 10);
+  });
+
+  it("should paginate and filter Realized Trades by tax category from the server", async () => {
+    // Filter SHORT_TERM trades (11 total)
+    const req = new NextRequest(
+      `http://localhost:3000/api/portfolios?id=${testPortfolioId}&resource=trades&page=1&pageSize=5&taxType=SHORT_TERM`
+    );
+    const res = await getPortfoliosApi(req);
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.pagination.page, 1);
+    assert.equal(data.pagination.pageSize, 5);
+    assert.equal(data.pagination.total, 11);
+    assert.equal(data.pagination.totalPages, 3);
+    assert.equal(data.realizedTrades.length, 5);
+    assert.ok(data.realizedTrades.every((t: any) => t.taxType === "SHORT_TERM"));
+  });
+});
+
+
 

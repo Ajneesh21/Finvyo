@@ -1,6 +1,6 @@
-import { BenchmarkMetrics, DailyPortfolioPoint } from "./types";
+import { BenchmarkMetrics, DailyPortfolioPoint, StockQuote } from "./types";
 import { CashFlowEvent } from "./twr-calculator";
-import { getStockDailyHistory } from "./stock-api";
+import { getStockDailyHistory, HistoricalPricePoint } from "./stock-api";
 
 export const BENCHMARKS_METADATA = [
   {
@@ -43,7 +43,9 @@ export const BENCHMARKS_METADATA = [
 export async function computeBenchmarkMetrics(
   timeline: DailyPortfolioPoint[],
   startDateStr: string,
-  cashFlows: CashFlowEvent[]
+  cashFlows: CashFlowEvent[],
+  preloadedBenchmarkHistories?: Record<string, HistoricalPricePoint[]>,
+  benchmarkQuotes?: Record<string, StockQuote>
 ): Promise<Record<string, BenchmarkMetrics>> {
   const result: Record<string, BenchmarkMetrics> = {};
 
@@ -66,18 +68,37 @@ export async function computeBenchmarkMetrics(
 
   for (const bm of BENCHMARKS_METADATA) {
     try {
-      const history = await getStockDailyHistory(bm.symbol, startDateStr);
+      const liveQuote = benchmarkQuotes?.[bm.symbol];
+      const history =
+        preloadedBenchmarkHistories?.[bm.symbol] ||
+        (await getStockDailyHistory(bm.symbol, startDateStr));
 
       if (!history || history.length < 2) {
-        result[bm.key] = generateFallbackBenchmark(bm.name, bm.symbol, years);
+        result[bm.key] = generateFallbackBenchmark(bm.name, bm.symbol, years, liveQuote);
         continue;
       }
 
       const startPrice = history[0].close;
-      const endPrice = history[history.length - 1].close;
+      // Use live quote price for endPrice if available, so today's price movement is immediately reflected
+      const endPrice =
+        liveQuote && liveQuote.regularMarketPrice > 0
+          ? liveQuote.regularMarketPrice
+          : history[history.length - 1].close;
       const totalReturn = startPrice > 0 ? (endPrice - startPrice) / startPrice : 0;
       const annualizedReturn =
         totalReturn > -1 ? Math.pow(1 + totalReturn, 1 / years) - 1 : 0;
+
+      // Extract day change % from live quote or fallback to last two history points
+      let dayChangePercent = liveQuote?.regularMarketChangePercent;
+      let dayChange = liveQuote?.regularMarketChange;
+      if (typeof dayChangePercent !== "number" && history.length >= 2) {
+        const pLast = history[history.length - 1].close;
+        const pPrev = history[history.length - 2].close;
+        if (pPrev > 0) {
+          dayChangePercent = Number((((pLast - pPrev) / pPrev) * 100).toFixed(2));
+          dayChange = Number((pLast - pPrev).toFixed(2));
+        }
+      }
 
       // Benchmark daily returns
       const bmReturns: number[] = [];
@@ -156,6 +177,10 @@ export async function computeBenchmarkMetrics(
       result[bm.key] = {
         name: bm.name,
         symbol: bm.symbol,
+        currentPrice: typeof endPrice === "number" ? Number(endPrice.toFixed(2)) : undefined,
+        dayChange: typeof dayChange === "number" ? Number(dayChange.toFixed(2)) : undefined,
+        dayChangePercent:
+          typeof dayChangePercent === "number" ? Number(dayChangePercent.toFixed(2)) : undefined,
         totalReturnPercent: Number((totalReturn * 100).toFixed(2)),
         annualizedReturnPercent: Number((annualizedReturn * 100).toFixed(2)),
         alpha: Number(alpha.toFixed(2)),
@@ -166,7 +191,7 @@ export async function computeBenchmarkMetrics(
         hypotheticalDCAValue: Number(hypotheticalDCAValue.toFixed(2)),
       };
     } catch {
-      result[bm.key] = generateFallbackBenchmark(bm.name, bm.symbol, years);
+      result[bm.key] = generateFallbackBenchmark(bm.name, bm.symbol, years, benchmarkQuotes?.[bm.symbol]);
     }
   }
 
@@ -176,7 +201,8 @@ export async function computeBenchmarkMetrics(
 function generateFallbackBenchmark(
   name: string,
   symbol: string,
-  years: number
+  years: number,
+  liveQuote?: StockQuote
 ): BenchmarkMetrics {
   const returnsMap: Record<string, number> = {
     "^GSPC": 38.5,
@@ -191,6 +217,9 @@ function generateFallbackBenchmark(
   return {
     name,
     symbol,
+    currentPrice: liveQuote?.regularMarketPrice,
+    dayChange: liveQuote?.regularMarketChange,
+    dayChangePercent: liveQuote?.regularMarketChangePercent,
     totalReturnPercent: tot,
     annualizedReturnPercent: Number(ann.toFixed(2)),
     alpha: 3.5,

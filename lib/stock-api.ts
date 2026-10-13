@@ -1,11 +1,13 @@
 import { StockQuote } from "./types";
 import { getCachedData, setCachedData } from "./redis";
 import { getTickerSector } from "./utils";
+import {
+  getCachedHistoricalPrices,
+  saveHistoricalPrices,
+} from "./historical-store";
 
 const QUOTE_CACHE_TTL = 30; // 30 seconds cache for live quotes
 const HISTORY_CACHE_TTL = 12 * 3600; // 12 hours cache for historical close data
-
-const FINNHUB_TOKEN = (process.env.FINNHUB_API_KEY || "").trim();
 
 export const BENCHMARK_SYMBOLS = {
   SP500: { symbol: "^GSPC", altSymbol: "SPY", name: "S&P 500 (US Large Cap)" },
@@ -17,7 +19,7 @@ export const BENCHMARK_SYMBOLS = {
 
 /**
  * Fetch real-time quote for a single symbol.
- * Queries live Finnhub API (if FINNHUB_API_KEY is configured) or Yahoo Finance.
+ * Queries Yahoo Finance chart API directly.
  */
 export async function getStockQuote(symbol: string): Promise<StockQuote> {
   const cleanSymbol = symbol.trim().toUpperCase();
@@ -41,49 +43,7 @@ export async function getStockQuote(symbol: string): Promise<StockQuote> {
     return cached;
   }
 
-  // 1. For US Equities -> Fetch live from Finnhub API if token is configured
-  if (!cleanSymbol.startsWith("^") && FINNHUB_TOKEN) {
-    try {
-      const finnhubUrl = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(
-        cleanSymbol
-      )}&token=${encodeURIComponent(FINNHUB_TOKEN)}`;
-
-      const res = await fetch(finnhubUrl, {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        // data.c = current price, data.d = change, data.dp = % change, data.h = high, data.l = low, data.pc = prev close
-        if (typeof data.c === "number" && data.c > 0) {
-          const regularMarketPrice = Number(data.c.toFixed(2));
-          const regularMarketChange = Number((data.d || 0).toFixed(2));
-          const regularMarketChangePercent = Number((data.dp || 0).toFixed(2));
-          const info = getTickerSector(cleanSymbol);
-
-          const quote: StockQuote = {
-            symbol: cleanSymbol,
-            shortName: info.name,
-            regularMarketPrice,
-            regularMarketChange,
-            regularMarketChangePercent,
-            regularMarketDayHigh: data.h ? Number(data.h.toFixed(2)) : regularMarketPrice,
-            regularMarketDayLow: data.l ? Number(data.l.toFixed(2)) : regularMarketPrice,
-            currency: "USD",
-            lastUpdated: new Date().toISOString(),
-          };
-
-          await setCachedData(cacheKey, quote, QUOTE_CACHE_TTL);
-          return quote;
-        }
-      }
-    } catch (err) {
-      console.error(`[Finnhub Error for ${cleanSymbol}]:`, err);
-    }
-  }
-
-  // 2. Query Yahoo Finance live chart API (for indices like ^GSPC, ^NDX, ^NSEI or fallback)
+  // Query Yahoo Finance live chart API
   try {
     const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
       cleanSymbol
@@ -95,6 +55,7 @@ export async function getStockQuote(symbol: string): Promise<StockQuote> {
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)",
       },
       cache: "no-store",
+      signal: AbortSignal.timeout(4000),
     });
 
     if (res.ok) {
@@ -158,8 +119,9 @@ export async function getStockQuote(symbol: string): Promise<StockQuote> {
   };
 }
 
+
 /**
- * Fetch real-time quotes for multiple symbols in parallel
+ * Fetch real-time quotes for multiple symbols in parallel with controlled concurrency
  */
 export async function getMultipleStockQuotes(
   symbols: string[]
@@ -169,12 +131,14 @@ export async function getMultipleStockQuotes(
   );
 
   const results: Record<string, StockQuote> = {};
-  const chunkSize = 4;
-  for (let i = 0; i < uniqueSymbols.length; i += chunkSize) {
-    const chunk = uniqueSymbols.slice(i, i + chunkSize);
+  const activeSymbols = uniqueSymbols.filter((s) => s !== "CASH" && s !== "USD");
+
+  // Fetch in parallel batches of 8 to minimize total network roundtrips
+  const CONCURRENCY = 8;
+  for (let i = 0; i < activeSymbols.length; i += CONCURRENCY) {
+    const batch = activeSymbols.slice(i, i + CONCURRENCY);
     await Promise.all(
-      chunk.map(async (symbol) => {
-        if (symbol === "CASH" || symbol === "USD") return;
+      batch.map(async (symbol) => {
         results[symbol] = await getStockQuote(symbol);
       })
     );
@@ -189,7 +153,9 @@ export interface HistoricalPricePoint {
 }
 
 /**
- * Fetch daily historical close prices for a symbol from Yahoo Finance.
+ * Fetch daily historical close prices for a symbol.
+ * Checks persistent on-disk storage first (data/historical-prices.json).
+ * Immutable past dates are retrieved instantly without network roundtrips.
  *
  * @param useAdjustedPrices - When true (default), returns dividend-adjusted close
  *   prices, which bakes dividend income into the price series (total-return basis).
@@ -203,17 +169,35 @@ export async function getStockDailyHistory(
   useAdjustedPrices: boolean = true
 ): Promise<HistoricalPricePoint[]> {
   const cleanSymbol = symbol.trim().toUpperCase();
-  // Scope the cache key by adjustment mode so the two variants are stored separately
-  const cacheKey = `history:${cleanSymbol}:${startDateStr}:${useAdjustedPrices ? "adj" : "raw"}`;
 
+  // 1. Check persistent on-disk store (data/historical-prices.json)
+  const persistentData = getCachedHistoricalPrices(
+    cleanSymbol,
+    startDateStr,
+    useAdjustedPrices
+  );
+  if (persistentData && persistentData.points.length > 0 && persistentData.isFresh) {
+    return persistentData.points;
+  }
+
+  // 2. Check Redis / fast memory cache
+  const cacheKey = `history:${cleanSymbol}:${startDateStr}:${useAdjustedPrices ? "adj" : "raw"}`;
   const cached = await getCachedData<HistoricalPricePoint[]>(cacheKey);
   if (cached && cached.length > 0) {
+    // Also save to persistent store if not present
+    saveHistoricalPrices(cleanSymbol, cached, useAdjustedPrices).catch(() => {});
     return cached;
   }
 
   try {
+    // If we already have older data, only fetch from the last known date onwards
+    let fetchStartDate = startDateStr;
+    if (persistentData && persistentData.points.length > 0 && persistentData.lastFetchedDate) {
+      fetchStartDate = persistentData.lastFetchedDate;
+    }
+
     const period1 =
-      Math.floor(new Date(startDateStr).getTime() / 1000) - 86400 * 7;
+      Math.floor(new Date(fetchStartDate).getTime() / 1000) - 86400 * 7;
     const period2 = Math.floor(Date.now() / 1000) + 86400;
 
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
@@ -226,6 +210,7 @@ export async function getStockDailyHistory(
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)",
       },
       next: { revalidate: 3600 },
+      signal: AbortSignal.timeout(5000),
     });
 
     if (res.ok) {
@@ -236,28 +221,42 @@ export async function getStockDailyHistory(
       const adjCloses =
         result?.indicators?.adjclose?.[0]?.adjclose || closes;
 
-      const points: HistoricalPricePoint[] = [];
+      const newPoints: HistoricalPricePoint[] = [];
       for (let i = 0; i < timestamps.length; i++) {
         const d = new Date(timestamps[i] * 1000).toISOString().split("T")[0];
-        // For portfolio holdings (useAdjustedPrices=false) always use the raw close
-        // so dividend income is not baked into the price. For benchmarks, use adjclose
-        // to capture total return (price appreciation + reinvested dividends).
         const close = useAdjustedPrices
           ? (adjCloses[i] ?? closes[i])
           : closes[i];
         if (close !== null && typeof close === "number" && !isNaN(close) && close > 0) {
-          points.push({ date: d, close: Number(close.toFixed(2)) });
+          newPoints.push({ date: d, close: Number(close.toFixed(2)) });
         }
       }
 
-      if (points.length > 0) {
-        points.sort((a, b) => a.date.localeCompare(b.date));
-        await setCachedData(cacheKey, points, HISTORY_CACHE_TTL);
-        return points;
+      if (newPoints.length > 0) {
+        // Save new points permanently to disk
+        await saveHistoricalPrices(cleanSymbol, newPoints, useAdjustedPrices);
+
+        // Retrieve the complete merged series from persistent storage
+        const completeData = getCachedHistoricalPrices(
+          cleanSymbol,
+          startDateStr,
+          useAdjustedPrices
+        );
+        const finalPoints = completeData?.points && completeData.points.length > 0
+          ? completeData.points
+          : newPoints.filter((p) => p.date >= startDateStr).sort((a, b) => a.date.localeCompare(b.date));
+
+        await setCachedData(cacheKey, finalPoints, HISTORY_CACHE_TTL);
+        return finalPoints;
       }
     }
   } catch (err) {
     console.error(`[Stock History Error for ${cleanSymbol}]:`, err);
+  }
+
+  // Fallback: if external fetch failed, return whatever existing data we have in persistent storage
+  if (persistentData && persistentData.points.length > 0) {
+    return persistentData.points;
   }
 
   return [];

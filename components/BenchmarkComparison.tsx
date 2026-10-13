@@ -71,6 +71,22 @@ export const BenchmarkComparison: React.FC<BenchmarkComparisonProps> = ({
                     <span className="text-[11px] font-mono text-slate-400">
                       {bm.symbol}
                     </span>
+                    {typeof bm.currentPrice === "number" && (
+                      <span className="font-mono text-xs text-slate-200 font-semibold">
+                        {bm.symbol === "^NSEI"
+                          ? `₹${bm.currentPrice.toLocaleString("en-IN")}`
+                          : formatCurrency(bm.currentPrice)}
+                      </span>
+                    )}
+                    {typeof bm.dayChangePercent === "number" && (
+                      <span
+                        className={`text-[11px] font-mono font-medium ${
+                          bm.dayChangePercent >= 0 ? "text-emerald-400" : "text-rose-400"
+                        }`}
+                      >
+                        ({formatPercent(bm.dayChangePercent, { showPlusSign: true })})
+                      </span>
+                    )}
                     {bm.isEstimated && (
                       <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-amber-400 border border-amber-500/30">
                         Estimated (Offline)
@@ -178,6 +194,7 @@ export const BenchmarkComparison: React.FC<BenchmarkComparisonProps> = ({
             <thead className="border-b border-slate-800 bg-slate-950/60 text-slate-400">
               <tr>
                 <th className="px-4 py-2.5">Asset / Index</th>
+                <th className="px-4 py-2.5 text-right">Today (%)</th>
                 <th className="px-4 py-2.5 text-right">Total Return (%)</th>
                 <th className="px-4 py-2.5 text-right">CAGR (%)</th>
                 <th className="px-4 py-2.5 text-right">Alpha (\(\alpha\))</th>
@@ -194,6 +211,7 @@ export const BenchmarkComparison: React.FC<BenchmarkComparisonProps> = ({
                   <Award className="h-3.5 w-3.5" />
                   Your Portfolio (TWR)
                 </td>
+                <td className="px-4 py-3 text-right font-mono text-slate-400">-</td>
                 <td className="px-4 py-3 text-right font-mono font-bold text-emerald-400">
                   {formatPercent(summary.twrPercent)}
                 </td>
@@ -221,6 +239,15 @@ export const BenchmarkComparison: React.FC<BenchmarkComparisonProps> = ({
                     <span className="font-mono text-[11px] text-slate-400">
                       ({bm.symbol})
                     </span>
+                  </td>
+                  <td
+                    className={`px-4 py-2.5 text-right font-mono font-medium ${
+                      (bm.dayChangePercent ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"
+                    }`}
+                  >
+                    {typeof bm.dayChangePercent === "number"
+                      ? formatPercent(bm.dayChangePercent, { showPlusSign: true })
+                      : "-"}
                   </td>
                   <td className="px-4 py-2.5 text-right font-mono">
                     {formatPercent(bm.totalReturnPercent)}

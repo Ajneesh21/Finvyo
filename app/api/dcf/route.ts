@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 
   try {
     // 1. Fetch current price, quote summary and fundamental time series from Yahoo Finance
-    const [quoteSummary, timeSeries, finnhubQuote] = await Promise.allSettled([
+    const [quoteSummary, timeSeries, realtimeQuote] = await Promise.allSettled([
       yf.quoteSummary(symbol, {
         modules: [
           "financialData",
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
 
     const qs = quoteSummary.status === "fulfilled" ? quoteSummary.value : null;
     const tsRaw = timeSeries.status === "fulfilled" ? timeSeries.value : [];
-    const liveQuote = finnhubQuote.status === "fulfilled" ? finnhubQuote.value : null;
+    const liveQuote = realtimeQuote.status === "fulfilled" ? realtimeQuote.value : null;
 
     const fd = qs?.financialData;
     const ks = qs?.defaultKeyStatistics;
@@ -237,7 +237,7 @@ export async function GET(req: NextRequest) {
           nwc: Math.round(rev * 0.02),
           nwcPercentRevenue: 2.0,
           deltaNwc: 0,
-          source: "Estimated from Trailing Financials & Finnhub",
+          source: "Estimated from Trailing Financials & Real-time Quote",
         });
       }
       warningMessages.push(
@@ -331,7 +331,7 @@ export async function GET(req: NextRequest) {
     // Data source attribution map
     const latestPeriod = latestYear.fiscalDate || "FY Latest";
     const dataSources: Record<string, { source: string; period: string }> = {
-      stockPrice: { source: "Yahoo Finance & Finnhub Real-time", period: "Live" },
+      stockPrice: { source: "Yahoo Finance Real-time", period: "Live" },
       marketCap: { source: "Yahoo Finance Market Data", period: "Live" },
       sharesOutstanding: { source: "SEC Filing / Yahoo Finance", period: latestPeriod },
       revenue: { source: "Company Financial Statements (10-K)", period: latestPeriod },

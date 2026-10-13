@@ -51,6 +51,10 @@ export interface RealizedTrade {
   realizedGainPercent: number;
   holdingPeriodDays: number;
   taxType: "SHORT_TERM" | "LONG_TERM";
+  buyDate?: string;
+  proceeds?: number; // Net sale proceeds in USD for this lot
+  buyFxRate?: number; // USD→INR on buy date
+  sellFxRate?: number; // USD→INR on sell date
 }
 
 export interface SubPeriodReturn {
@@ -83,6 +87,9 @@ export interface DailyPortfolioPoint {
 export interface BenchmarkMetrics {
   name: string;
   symbol: string;
+  currentPrice?: number; // Current live market price / index level
+  dayChange?: number; // Today's point change (e.g. -279.50)
+  dayChangePercent?: number; // Today's market percentage change (e.g. -1.16%)
   totalReturnPercent: number;
   annualizedReturnPercent: number;
   alpha: number; // Excess return vs portfolio
@@ -123,6 +130,7 @@ export interface PortfolioSummary {
   timeline: DailyPortfolioPoint[];
   twrSubPeriods: SubPeriodReturn[];
   benchmarks: Record<string, BenchmarkMetrics>;
+  usdInrRate?: number;
 }
 
 export interface StockQuote {
