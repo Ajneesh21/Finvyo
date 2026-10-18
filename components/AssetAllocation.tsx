@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import {
   ResponsiveContainer,
   PieChart,
@@ -31,37 +31,41 @@ const STOCK_COLORS = [
   "#6366f1", // indigo
 ];
 
-export const AssetAllocation: React.FC<AssetAllocationProps> = ({
+const AssetAllocationInner: React.FC<AssetAllocationProps> = ({
   holdings,
   totalValue,
   layout = "grid",
 }) => {
   // Aggregate sectors
-  const sectorMap: Record<string, { value: number; count: number }> = {};
-  holdings.forEach((h) => {
-    const s = h.sector || "Other";
-    if (!sectorMap[s]) sectorMap[s] = { value: 0, count: 0 };
-    sectorMap[s].value += h.currentValue;
-    sectorMap[s].count += 1;
-  });
+  const sectorData = useMemo(() => {
+    const sectorMap: Record<string, { value: number; count: number }> = {};
+    holdings.forEach((h) => {
+      const s = h.sector || "Other";
+      if (!sectorMap[s]) sectorMap[s] = { value: 0, count: 0 };
+      sectorMap[s].value += h.currentValue;
+      sectorMap[s].count += 1;
+    });
 
-  const sectorData = Object.entries(sectorMap)
-    .map(([name, data]) => ({
-      name,
-      value: Number(data.value.toFixed(2)),
-      percent: totalValue > 0 ? (data.value / totalValue) * 100 : 0,
-      color: getSectorColor(name),
-    }))
-    .sort((a, b) => b.value - a.value);
+    return Object.entries(sectorMap)
+      .map(([name, data]) => ({
+        name,
+        value: Number(data.value.toFixed(2)),
+        percent: totalValue > 0 ? (data.value / totalValue) * 100 : 0,
+        color: getSectorColor(name),
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [holdings, totalValue]);
 
   // Top stocks data
-  const stockData = holdings.map((h, i) => ({
-    name: h.symbol,
-    companyName: h.companyName,
-    value: Number(h.currentValue.toFixed(2)),
-    percent: h.portfolioWeight,
-    color: STOCK_COLORS[i % STOCK_COLORS.length],
-  }));
+  const stockData = useMemo(() => {
+    return holdings.map((h, i) => ({
+      name: h.symbol,
+      companyName: h.companyName,
+      value: Number(h.currentValue.toFixed(2)),
+      percent: h.portfolioWeight,
+      color: STOCK_COLORS[i % STOCK_COLORS.length],
+    }));
+  }, [holdings]);
 
   return (
     <div
@@ -209,3 +213,5 @@ export const AssetAllocation: React.FC<AssetAllocationProps> = ({
     </div>
   );
 };
+
+export const AssetAllocation = React.memo(AssetAllocationInner);

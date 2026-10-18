@@ -90,7 +90,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.SubmitEvent) => {
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const newTx: Transaction = {
       id: transactionToEdit?.id || `tx-${Date.now()}`,

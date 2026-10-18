@@ -160,12 +160,13 @@ export async function computeBenchmarkMetrics(
 
       // Simulated DCA: What if the user dollar-cost-averaged into this index instead?
       const historyMap = new Map(history.map((h) => [h.date, h.close]));
+      const sortedDates = Array.from(historyMap.keys()).sort();
       let simulatedUnits = 0;
 
       cashFlows.forEach((cf) => {
         if (cf.amount > 0) {
           // Find price on or near deposit date
-          const p = historyMap.get(cf.date) || startPrice;
+          const p = getClosestTradingDayPrice(historyMap, sortedDates, cf.date, startPrice);
           if (p > 0) {
             simulatedUnits += cf.amount / p;
           }
@@ -196,6 +197,28 @@ export async function computeBenchmarkMetrics(
   }
 
   return result;
+}
+
+function getClosestTradingDayPrice(
+  historyMap: Map<string, number>,
+  sortedDates: string[],
+  targetDate: string,
+  fallbackPrice: number
+): number {
+  if (historyMap.has(targetDate)) return historyMap.get(targetDate)!;
+  // Binary search for closest date <= targetDate
+  let lo = 0, hi = sortedDates.length - 1;
+  let bestIdx = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sortedDates[mid] <= targetDate) {
+      bestIdx = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return bestIdx >= 0 ? historyMap.get(sortedDates[bestIdx]) || fallbackPrice : fallbackPrice;
 }
 
 function generateFallbackBenchmark(

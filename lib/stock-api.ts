@@ -4,6 +4,9 @@ import { getTickerSector } from "./utils";
 import {
   getCachedHistoricalPrices,
   saveHistoricalPrices,
+  getLatestCachedPrice,
+  saveLatestStockPrice,
+  getAllCachedPoints,
 } from "./historical-store";
 
 const QUOTE_CACHE_TTL = 30; // 30 seconds cache for live quotes
@@ -64,18 +67,18 @@ export async function getStockQuote(symbol: string): Promise<StockQuote> {
       if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
         const regularMarketPrice = meta.regularMarketPrice;
         const prevClose =
-          meta.chartPreviousClose || meta.previousClose || regularMarketPrice;
-        const change =
-          typeof meta.fulldayChange === "number"
-            ? meta.fulldayChange
-            : regularMarketPrice - prevClose;
+          typeof meta.chartPreviousClose === "number" && meta.chartPreviousClose > 0
+            ? meta.chartPreviousClose
+            : typeof meta.previousClose === "number" && meta.previousClose > 0
+            ? meta.previousClose
+            : regularMarketPrice;
+
+        const change = regularMarketPrice - prevClose;
         const changePercent =
           typeof meta.regularMarketChangePercent === "number"
             ? meta.regularMarketChangePercent
-            : typeof meta.fulldayChangePercent === "number"
-            ? meta.fulldayChangePercent
             : prevClose > 0
-            ? (change / prevClose) * 100
+            ? ((regularMarketPrice - prevClose) / prevClose) * 100
             : 0;
 
         const info = getTickerSector(cleanSymbol);
@@ -84,8 +87,9 @@ export async function getStockQuote(symbol: string): Promise<StockQuote> {
           symbol: cleanSymbol,
           shortName: meta.shortName || meta.symbol || info.name,
           regularMarketPrice: Number(regularMarketPrice.toFixed(2)),
-          regularMarketChange: Number(change.toFixed(2)),
+          regularMarketChange: Number(change.toFixed(4)),
           regularMarketChangePercent: Number(changePercent.toFixed(2)),
+          regularMarketPreviousClose: Number(prevClose.toFixed(2)),
           regularMarketDayHigh: meta.regularMarketDayHigh
             ? Number(meta.regularMarketDayHigh.toFixed(2))
             : regularMarketPrice,
@@ -97,6 +101,8 @@ export async function getStockQuote(symbol: string): Promise<StockQuote> {
         };
 
         await setCachedData(cacheKey, quote, QUOTE_CACHE_TTL);
+        // Also persist to disk so subsequent offline calculations have today's market price
+        saveLatestStockPrice(cleanSymbol, quote.regularMarketPrice).catch(() => {});
         return quote;
       }
     }
@@ -104,9 +110,32 @@ export async function getStockQuote(symbol: string): Promise<StockQuote> {
     console.error(`[Yahoo Finance Error for ${cleanSymbol}]:`, err);
   }
 
+  const info = getTickerSector(cleanSymbol);
+
+  // If network fetch failed (offline, timeout, rate limited, or no internet),
+  // retrieve the most recent closing market price from persistent disk storage.
+  // This prevents catastrophic valuation collapse to original buy prices.
+  const lastCached = getLatestCachedPrice(cleanSymbol);
+  if (lastCached && lastCached.price > 0) {
+    console.info(
+      `[StockAPI] Offline fallback: using last known market price for ${cleanSymbol} (${lastCached.date}): $${lastCached.price}`
+    );
+    return {
+      symbol: cleanSymbol,
+      shortName: info.name,
+      regularMarketPrice: Number(lastCached.price.toFixed(2)),
+      regularMarketChange: 0,
+      regularMarketChangePercent: 0,
+      regularMarketPreviousClose: Number(lastCached.price.toFixed(2)),
+      regularMarketDayHigh: Number(lastCached.price.toFixed(2)),
+      regularMarketDayLow: Number(lastCached.price.toFixed(2)),
+      currency: "USD",
+      lastUpdated: lastCached.date,
+    };
+  }
+
   // All price sources failed. Return 0 so callers can detect the failure and use
   // their own fallback (e.g., per-lot cost basis). Never fabricate a $100 price.
-  const info = getTickerSector(cleanSymbol);
   console.warn(`[StockAPI] No price available for ${cleanSymbol} — returning 0`);
   return {
     symbol: cleanSymbol,
@@ -257,6 +286,11 @@ export async function getStockDailyHistory(
   // Fallback: if external fetch failed, return whatever existing data we have in persistent storage
   if (persistentData && persistentData.points.length > 0) {
     return persistentData.points;
+  }
+
+  const allCached = getAllCachedPoints(cleanSymbol, useAdjustedPrices);
+  if (allCached.length > 0) {
+    return allCached;
   }
 
   return [];

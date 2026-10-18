@@ -12,9 +12,21 @@ import { HoldingsTable } from "@/components/HoldingsTable";
 import { AssetAllocation } from "@/components/AssetAllocation";
 import { TransactionLedger } from "@/components/TransactionLedger";
 import { MetricsDetail } from "@/components/MetricsDetail";
+import dynamic from "next/dynamic";
 import { EditTransactionModal } from "@/components/EditTransactionModal";
-import { DcfCalculator } from "@/components/DcfCalculator";
 import { PortfolioManagerModal } from "@/components/PortfolioManagerModal";
+
+const DcfCalculator = dynamic(
+  () => import("@/components/DcfCalculator").then((m) => m.DcfCalculator),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-96 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+      </div>
+    ),
+  }
+);
 import {
   TrendingUp,
   Globe,

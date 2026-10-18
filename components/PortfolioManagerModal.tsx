@@ -54,7 +54,7 @@ export const PortfolioManagerModal: React.FC<PortfolioManagerModalProps> = ({
     setEditName(p.name);
   };
 
-  const handleSaveRename = (id: string, e: React.SubmitEvent) => {
+  const handleSaveRename = (id: string, e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (editName.trim()) {
       onRenamePortfolio(id, editName.trim());

@@ -9,3 +9,13 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .DS_Store
+Transactions*
+*.xlsx
+*.numbers
+METHODOLOGY.md
+DISCLAIMER.md
+README.md
+LICENSE
+tests/
+scripts/
+.idea/

@@ -19,7 +19,7 @@ interface DashboardOverviewProps {
   summary: PortfolioSummary;
 }
 
-export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
+const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
   summary,
 }) => {
   const isTwrPositive = summary.twrPercent >= 0;
@@ -38,17 +38,20 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       : summary.netInvestedCapital;
 
   // Day's total portfolio change
-  const totalDayChange = summary.holdings.reduce(
-    (sum, h) => sum + h.dayChange,
-    0
-  );
-  const previousDayValue = summary.holdingsValue - totalDayChange;
-  const totalDayChangePercent =
-    previousDayValue > 0
-      ? (totalDayChange / previousDayValue) * 100
-      : summary.holdingsValue > 0
-      ? (totalDayChange / summary.holdingsValue) * 100
-      : 0;
+  const { totalDayChange, totalDayChangePercent } = React.useMemo(() => {
+    const totalDayChange = summary.holdings.reduce(
+      (sum, h) => sum + h.dayChange,
+      0
+    );
+    const previousDayValue = summary.holdingsValue - totalDayChange;
+    const totalDayChangePercent =
+      previousDayValue > 0
+        ? (totalDayChange / previousDayValue) * 100
+        : summary.holdingsValue > 0
+        ? (totalDayChange / summary.holdingsValue) * 100
+        : 0;
+    return { totalDayChange, totalDayChangePercent };
+  }, [summary.holdings, summary.holdingsValue]);
   const isDayPositive = totalDayChange >= 0;
 
   // Top benchmark comparison for quick banner
@@ -328,3 +331,5 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     </div>
   );
 };
+
+export const DashboardOverview = React.memo(DashboardOverviewInner);

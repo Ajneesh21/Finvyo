@@ -11,7 +11,10 @@ import {
   saveHistoricalPrices,
   getCachedHistoricalPrices,
   getCachedDateRange,
+  getLatestCachedPrice,
+  saveLatestStockPrice,
 } from "../lib/historical-store";
+import { getStockQuote } from "../lib/stock-api";
 import { savePortfolio } from "../lib/storage";
 import { GET as getPortfoliosApi } from "../app/api/portfolios/route";
 import { NextRequest } from "next/server";
@@ -892,6 +895,106 @@ describe("Server-Side Pagination API (/api/portfolios)", () => {
     assert.ok(data.realizedTrades.every((t: any) => t.taxType === "SHORT_TERM"));
   });
 });
+
+describe("Offline Resilience & Price Persistence Engine", () => {
+  const offlineSym = "TEST_OFFLINE_TECH";
+
+  it("should retrieve latest cached market price when external API is unreachable", async () => {
+    await saveHistoricalPrices(offlineSym, [
+      { date: "2026-09-01", close: 100.0 },
+      { date: "2026-09-15", close: 145.5 },
+      { date: "2026-10-12", close: 185.75 },
+    ], false);
+
+    const latest = getLatestCachedPrice(offlineSym);
+    assert.ok(latest !== null, "Expected cached price to exist");
+    assert.equal(latest.date, "2026-10-12");
+    assert.equal(latest.price, 185.75);
+
+    // Verify getStockQuote returns the cached price without crashing or returning 0
+    const quote = await getStockQuote(offlineSym);
+    assert.equal(quote.regularMarketPrice, 185.75);
+    assert.equal(quote.symbol, offlineSym);
+  });
+
+  it("should prevent portfolio valuation from collapsing to purchase cost basis when offline", async () => {
+    // Stock bought months ago at $100, but market price reached $185.75
+    const txs: Transaction[] = [
+      {
+        id: "tx-test-off-1",
+        date: "2026-01-15T10:00:00",
+        type: "BUY",
+        symbol: offlineSym,
+        shares: 10,
+        price: 100.0,
+        amount: -1000.0,
+      },
+    ];
+
+    // Compute portfolio summary without external network quotes (simulating no internet)
+    const summary = await computePortfolioSummary(txs);
+
+    // Verify holdings are valued at market close ($185.75 * 10 = $1,857.50), NOT purchase price ($1,000)
+    assert.equal(summary.holdings.length, 1);
+    assert.equal(summary.holdings[0].currentPrice, 185.75);
+    assert.equal(summary.holdings[0].currentValue, 1857.5);
+    assert.equal(summary.holdingsValue, 1857.5);
+    assert.equal(summary.unrealizedPnL, 857.5);
+    assert.ok(summary.twrPercent > 80, `Expected TWR ~85.75%, got ${summary.twrPercent}%`);
+
+    // Verify timeline doesn't drop off a cliff on the last day
+    const tl = summary.timeline;
+    assert.ok(tl.length >= 2, "Expected multiple timeline points");
+    const lastPoint = tl[tl.length - 1];
+    const prevPoint = tl[tl.length - 2];
+    assert.ok(
+      Math.abs(lastPoint.portfolioValue - prevPoint.portfolioValue) < 50,
+      `Expected smooth portfolio value between ${prevPoint.date} and ${lastPoint.date}`
+    );
+  });
+
+  it("should accurately calculate dayChange using regular market prices and previous close", async () => {
+    const sym = "TEST_DAY_CHANGE";
+    await saveHistoricalPrices(sym, [
+      { date: "2026-10-14", close: 500.0 },
+      { date: "2026-10-15", close: 539.44 },
+    ], false);
+
+    const txs: Transaction[] = [
+      {
+        id: "tx-dc-1",
+        date: "2026-08-01T10:00:00",
+        type: "BUY",
+        symbol: sym,
+        shares: 10,
+        price: 400.0,
+        amount: -4000.0,
+      },
+    ];
+
+    // Simulate regular market quote with regularMarketPrice = 529.05, previousClose = 539.44
+    // (change = -10.39, NOT fulldayChange = -12.608)
+    const mockQuote: Record<string, import("../lib/types").StockQuote> = {
+      [sym]: {
+        symbol: sym,
+        regularMarketPrice: 529.05,
+        regularMarketChange: -10.39,
+        regularMarketChangePercent: -1.93,
+        regularMarketPreviousClose: 539.44,
+        lastUpdated: new Date().toISOString(),
+      },
+    };
+
+    const summary = await computePortfolioSummary(txs, mockQuote);
+    assert.equal(summary.holdings.length, 1);
+    const h = summary.holdings[0];
+
+    // Day change should be 10 shares * (529.05 - 539.44) = -103.90, exactly matching broker statement
+    assert.equal(h.dayChange, -103.9);
+    assert.ok(Math.abs(h.dayChangePercent - (-1.93)) < 0.05);
+  });
+});
+
 
 
 

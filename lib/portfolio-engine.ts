@@ -11,6 +11,7 @@ import { calculateTWR, CashFlowEvent, alignTimelineTWRSeries } from "./twr-calcu
 import { calculateXIRR } from "./xirr-calculator";
 import { getMultipleStockQuotes, getStockDailyHistory, HistoricalPricePoint } from "./stock-api";
 import { computeBenchmarkMetrics } from "./benchmark-service";
+import { getLatestCachedPrice } from "./historical-store";
 
 interface BuyLot {
   shares: number;
@@ -100,6 +101,7 @@ export async function computePortfolioSummary(
     {
       shares: number;
       buyLots: BuyLot[];
+      lotIdx: number;
       dividendsReceived: number;
       totalBoughtCost: number;
       totalBoughtShares: number;
@@ -134,6 +136,7 @@ export async function computePortfolioSummary(
           holdingsMap.set(symbol, {
             shares: 0,
             buyLots: [],
+            lotIdx: 0,
             dividendsReceived: 0,
             totalBoughtCost: 0,
             totalBoughtShares: 0,
@@ -152,6 +155,7 @@ export async function computePortfolioSummary(
         holdingsMap.set(symbol, {
           shares: 0,
           buyLots: [],
+          lotIdx: 0,
           dividendsReceived: 0,
           totalBoughtCost: 0,
           totalBoughtShares: 0,
@@ -179,6 +183,7 @@ export async function computePortfolioSummary(
         holdingsMap.set(symbol, {
           shares: 0,
           buyLots: [],
+          lotIdx: 0,
           dividendsReceived: 0,
           totalBoughtCost: 0,
           totalBoughtShares: 0,
@@ -190,8 +195,8 @@ export async function computePortfolioSummary(
       let totalCostOfSoldShares = 0;
       const sellFxRate = lookupFxRate(fxSeries, tx.date, tx.exchangeRate);
 
-      while (remainingToSell > 0.00001 && pos.buyLots.length > 0) {
-        const lot = pos.buyLots[0];
+      while (remainingToSell > 0.00001 && pos.lotIdx < pos.buyLots.length) {
+        const lot = pos.buyLots[pos.lotIdx];
         const lotSharesSold = Math.min(lot.shares, remainingToSell);
         const lotCost = lotSharesSold * lot.price;
         const lotProceeds =
@@ -202,7 +207,7 @@ export async function computePortfolioSummary(
         remainingToSell -= lotSharesSold;
         lot.shares -= lotSharesSold;
         if (lot.shares <= 0.00001) {
-          pos.buyLots.shift();
+          pos.lotIdx++;
         }
 
         const d1 = new Date(lot.date).getTime();
@@ -295,19 +300,25 @@ export async function computePortfolioSummary(
     const quote = quotes[symbol];
     const livePrice = quote?.regularMarketPrice;
     const fallbackBuyPrice =
-      pos.buyLots.length > 0
-        ? pos.buyLots[0].price
+      pos.lotIdx < pos.buyLots.length
+        ? pos.buyLots[pos.lotIdx].price
         : pos.totalBoughtShares > 0
         ? pos.totalBoughtCost / pos.totalBoughtShares
         : 0; // No cost data — use 0 rather than fabricating a $100 price
 
-    const currentPrice = livePrice && livePrice > 0 ? livePrice : fallbackBuyPrice;
+    const latestCachedPrice = getLatestCachedPrice(symbol)?.price;
+    const currentPrice =
+      livePrice && livePrice > 0
+        ? livePrice
+        : latestCachedPrice && latestCachedPrice > 0
+        ? latestCachedPrice
+        : fallbackBuyPrice;
     const currentValue = pos.shares * currentPrice;
 
-    let costBasis = pos.buyLots.reduce(
-      (sum, lot) => sum + lot.shares * lot.price,
-      0
-    );
+    let costBasis = 0;
+    for (let i = pos.lotIdx; i < pos.buyLots.length; i++) {
+      costBasis += pos.buyLots[i].shares * pos.buyLots[i].price;
+    }
     if (costBasis <= 0 && pos.totalBoughtCost > 0) {
       costBasis = (pos.totalBoughtCost / (pos.totalBoughtShares || 1)) * pos.shares;
     }
@@ -317,9 +328,16 @@ export async function computePortfolioSummary(
     const unrealizedPnLPercent =
       costBasis > 0 ? (unrealizedPnL / costBasis) * 100 : 0;
 
-    const dayChangePercent = quote?.regularMarketChangePercent || 0;
+    const prevClose = quote?.regularMarketPreviousClose;
+    const dayChangePercent =
+      typeof prevClose === "number" && prevClose > 0
+        ? ((currentPrice - prevClose) / prevClose) * 100
+        : quote?.regularMarketChangePercent || 0;
+
     const dayChange =
-      typeof quote?.regularMarketChange === "number" && !isNaN(quote.regularMarketChange)
+      typeof prevClose === "number" && prevClose > 0
+        ? pos.shares * (currentPrice - prevClose)
+        : typeof quote?.regularMarketChange === "number" && !isNaN(quote.regularMarketChange)
         ? pos.shares * quote.regularMarketChange
         : (currentValue * dayChangePercent) / 100;
 
@@ -457,11 +475,26 @@ export async function computePortfolioSummary(
   );
 
   // 6. Money-Weighted Return (XIRR)
+  const xirrTxTypes = new Set(["BUY", "SELL", "DIVIDEND", "FEE", "TAX"]);
   const xirrCashFlows = [
-    ...stockBuyTxList.map((t) => ({
-      date: t.date,
-      amount: t.type === "BUY" ? -Math.abs(t.amount || t.shares * t.price) : Math.abs(t.amount || t.shares * t.price),
-    })),
+    ...sortedTx
+      .filter((t) => xirrTxTypes.has(t.type))
+      .map((t) => {
+        let amount = 0;
+        if (t.type === "BUY") {
+          amount = -Math.abs(t.amount || t.shares * t.price);
+        } else if (t.type === "SELL") {
+          amount = Math.abs(t.amount || t.shares * t.price);
+        } else if (t.type === "DIVIDEND") {
+          amount = Math.abs(t.amount);
+        } else if (t.type === "FEE" || t.type === "TAX") {
+          amount = -Math.abs(t.amount || t.fee || 0);
+        }
+        return {
+          date: t.date,
+          amount,
+        };
+      }),
     {
       date: new Date().toISOString().split("T")[0],
       amount: totalHoldingsValue,
@@ -744,11 +777,14 @@ async function generatePortfolioTimeline(
     if (initialPrice <= 0) {
       const holdingPrice = holdings.find((h) => h.symbol === sym)?.currentPrice;
       const quotePrice = quotes[sym]?.regularMarketPrice;
+      const cachedPrice = getLatestCachedPrice(sym)?.price;
       initialPrice =
         holdingPrice && holdingPrice > 0
           ? holdingPrice
           : quotePrice && quotePrice > 0
           ? quotePrice
+          : cachedPrice && cachedPrice > 0
+          ? cachedPrice
           : 0;
     }
     lastKnownStockPrice[sym] = initialPrice;
@@ -870,7 +906,11 @@ async function generatePortfolioTimeline(
         if (isToday && quotes[sym]?.regularMarketPrice && quotes[sym].regularMarketPrice > 0) {
           p = quotes[sym].regularMarketPrice;
         } else {
-          p = lastKnownStockPrice[sym] || quotes[sym]?.regularMarketPrice || 0;
+          p =
+            lastKnownStockPrice[sym] ||
+            quotes[sym]?.regularMarketPrice ||
+            getLatestCachedPrice(sym)?.price ||
+            0;
         }
         dayHoldingsVal += shares * p;
       }

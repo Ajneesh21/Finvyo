@@ -24,7 +24,7 @@ type SortKey =
   | "dayChangePercent"
   | "portfolioWeight";
 
-export const HoldingsTable: React.FC<HoldingsTableProps> = ({
+const HoldingsTableInner: React.FC<HoldingsTableProps> = ({
   holdings,
 }) => {
   const [search, setSearch] = useState("");
@@ -83,23 +83,43 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
   const isFiltered = filteredHoldings.length !== holdings.length;
   const activeList = isFiltered ? filteredHoldings : holdings;
 
-  const totalCostBasis = activeList.reduce((s, h) => s + h.totalCostBasis, 0);
-  const totalHoldingsValueCalculated = activeList.reduce((s, h) => s + h.currentValue, 0);
-  const displayTotalValue = isFiltered ? totalHoldingsValueCalculated : totalHoldingsValue;
-  const totalUnrealized = displayTotalValue - totalCostBasis;
-  const totalUnrealizedPercent =
-    totalCostBasis > 0 ? (totalUnrealized / totalCostBasis) * 100 : 0;
-  const totalDayGain = activeList.reduce((s, h) => s + h.dayChange, 0);
-  const previousDayHoldingsValue = displayTotalValue - totalDayGain;
-  const totalDayGainPercent =
-    previousDayHoldingsValue > 0
-      ? (totalDayGain / previousDayHoldingsValue) * 100
-      : displayTotalValue > 0
-      ? (totalDayGain / displayTotalValue) * 100
-      : 0;
-  const totalWeightPercent = isFiltered
-    ? activeList.reduce((s, h) => s + getWeight(h), 0)
-    : 100;
+  const {
+    totalCostBasis,
+    displayTotalValue,
+    totalUnrealized,
+    totalUnrealizedPercent,
+    totalDayGain,
+    totalDayGainPercent,
+    totalWeightPercent,
+  } = useMemo(() => {
+    const totalCostBasis = activeList.reduce((s, h) => s + h.totalCostBasis, 0);
+    const totalHoldingsValueCalculated = activeList.reduce((s, h) => s + h.currentValue, 0);
+    const displayTotalValue = isFiltered ? totalHoldingsValueCalculated : totalHoldingsValue;
+    const totalUnrealized = displayTotalValue - totalCostBasis;
+    const totalUnrealizedPercent =
+      totalCostBasis > 0 ? (totalUnrealized / totalCostBasis) * 100 : 0;
+    const totalDayGain = activeList.reduce((s, h) => s + h.dayChange, 0);
+    const previousDayHoldingsValue = displayTotalValue - totalDayGain;
+    const totalDayGainPercent =
+      previousDayHoldingsValue > 0
+        ? (totalDayGain / previousDayHoldingsValue) * 100
+        : displayTotalValue > 0
+        ? (totalDayGain / displayTotalValue) * 100
+        : 0;
+    const totalWeightPercent = isFiltered
+      ? activeList.reduce((s, h) => s + getWeight(h), 0)
+      : 100;
+
+    return {
+      totalCostBasis,
+      displayTotalValue,
+      totalUnrealized,
+      totalUnrealizedPercent,
+      totalDayGain,
+      totalDayGainPercent,
+      totalWeightPercent,
+    };
+  }, [activeList, isFiltered, totalHoldingsValue]);
 
   if (holdings.length === 0) {
     return (
@@ -382,3 +402,5 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
     </div>
   );
 };
+
+export const HoldingsTable = React.memo(HoldingsTableInner);

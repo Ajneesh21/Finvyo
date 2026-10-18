@@ -139,6 +139,7 @@ export interface StockQuote {
   regularMarketPrice: number;
   regularMarketChange: number;
   regularMarketChangePercent: number;
+  regularMarketPreviousClose?: number;
   regularMarketDayHigh?: number;
   regularMarketDayLow?: number;
   fiftyTwoWeekHigh?: number;

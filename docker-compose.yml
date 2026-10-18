@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: finvyo-web
-    restart: no
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -13,7 +13,7 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-finvyo_dev_pass}@redis:6379
       - PORT=3000
     depends_on:
       - redis
@@ -23,14 +23,14 @@ services:
   redis:
     image: redis:8-alpine
     container_name: finvyo-redis
-    restart: no
+    restart: unless-stopped
     deploy:
       resources:
         limits:
           memory: 256mb
     ports:
-      - "6379:6379"
-    command: redis-server --appendonly yes
+      - "127.0.0.1:6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-finvyo_dev_pass}
     volumes:
       - redis-data:/data
 

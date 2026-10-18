@@ -13,7 +13,6 @@ import {
   Clipboard,
 } from "lucide-react";
 import { Transaction, ParsedPdfResult } from "@/lib/types";
-import { SAMPLE_VESTED_TRANSACTIONS } from "@/lib/sample-data";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 interface PdfUploaderProps {
@@ -164,7 +163,8 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
     handleClose();
   };
 
-  const handleLoadSample = () => {
+  const handleLoadSample = async () => {
+    const { SAMPLE_VESTED_TRANSACTIONS } = await import("@/lib/sample-data");
     onTransactionsLoaded(
       SAMPLE_VESTED_TRANSACTIONS,
       "Sample Finvyo US Growth Portfolio",

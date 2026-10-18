@@ -139,7 +139,7 @@ export const BenchmarkComparison: React.FC<BenchmarkComparisonProps> = ({
               {/* Risk & Correlation Stats */}
               <div className="grid grid-cols-3 gap-2 text-center text-xs">
                 <div className="rounded-lg bg-slate-800/40 p-2">
-                  <span className="text-[10px] text-slate-400 block">Beta (\(\beta\))</span>
+                  <span className="text-[10px] text-slate-400 block">Beta (β)</span>
                   <span className="font-mono font-semibold text-slate-200">
                     {bm.beta}
                   </span>
@@ -197,8 +197,8 @@ export const BenchmarkComparison: React.FC<BenchmarkComparisonProps> = ({
                 <th className="px-4 py-2.5 text-right">Today (%)</th>
                 <th className="px-4 py-2.5 text-right">Total Return (%)</th>
                 <th className="px-4 py-2.5 text-right">CAGR (%)</th>
-                <th className="px-4 py-2.5 text-right">Alpha (\(\alpha\))</th>
-                <th className="px-4 py-2.5 text-right">Beta (\(\beta\))</th>
+                <th className="px-4 py-2.5 text-right">Alpha (α)</th>
+                <th className="px-4 py-2.5 text-right">Beta (β)</th>
                 <th className="px-4 py-2.5 text-right">Sharpe Ratio</th>
                 <th className="px-4 py-2.5 text-right">Max Drawdown</th>
                 <th className="px-4 py-2.5 text-right">DCA Value</th>

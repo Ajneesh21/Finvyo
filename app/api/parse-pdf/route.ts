@@ -1,18 +1,63 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { execFile } from "child_process";
-import { promisify } from "util";
+import os from "os";
+import pdfParse from "pdf-parse";
 import { parseVestedStatementText, parseVestedXlsxBuffer } from "@/lib/pdf-parser";
 import { parseVestedSpreadsheetSheets } from "@/lib/vested-sheet-parser";
+import { checkRateLimit } from "@/lib/rate-limiter";
 import * as XLSX from "xlsx";
-
-const execFileAsync = promisify(execFile);
 
 export const dynamic = "force-dynamic";
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+function getClientIp(req: NextRequest): string {
+  // When behind a trusted reverse proxy (Vercel, Cloudflare), prefer req.ip
+  // In direct-access mode, X-Forwarded-For can be spoofed
+  return (
+    (req as any).ip ||
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
+    req.headers.get("x-real-ip") ||
+    "127.0.0.1"
+  );
+}
+
 export async function POST(req: NextRequest) {
+  const tempFilesToClean: string[] = [];
+
   try {
+    // 1. Rate Limiting per IP
+    const ip = getClientIp(req);
+    const rateCheck = await checkRateLimit(`parse-pdf:${ip}`, {
+      maxRequests: 30,
+      windowSeconds: 60,
+    });
+
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: "Rate limit exceeded. Please wait.",
+          retryAfter: rateCheck.resetInSeconds,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateCheck.resetInSeconds),
+          },
+        }
+      );
+    }
+
+    // 2. File size check via content-length header
+    const contentLength = parseInt(req.headers.get("content-length") || "0", 10);
+    if (contentLength > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: "Payload too large. Maximum allowed size is 10MB." },
+        { status: 413 }
+      );
+    }
+
     const contentType = req.headers.get("content-type") || "";
 
     // Case 1: JSON with pasted raw text
@@ -29,7 +74,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(result);
     }
 
-    // Case 2: Multipart Form Data with XLSX, Numbers, CSV, or XLS file
+    // Case 2: Multipart Form Data with PDF, XLSX, CSV file
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 
@@ -40,68 +85,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: "File too large. Maximum allowed size is 10MB." },
+        { status: 413 }
+      );
+    }
+
     const fileName = file.name.toLowerCase();
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // 1. If Apple Numbers (.numbers) file
+    // 1. If Apple Numbers (.numbers) file - unsupported (osascript execution removed for security)
     if (fileName.endsWith(".numbers")) {
-      if (process.platform !== "darwin") {
-        return NextResponse.json(
-          {
-            error:
-              "Apple Numbers (.numbers) file parsing is only supported in a macOS environment. Please export and upload your statement in Excel (.xlsx) format from Vested.",
-          },
-          { status: 400 }
-        );
-      }
-
-      try {
-        const tempId = `numbers-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const tempFilePath = path.join("/tmp", `${tempId}.numbers`);
-        const tempCsvDir = path.join("/tmp", `${tempId}-csv`);
-
-        fs.writeFileSync(tempFilePath, buffer);
-
-        // Export via AppleScript on macOS safely using execFile without shell interpolation
-        const appleScript = `tell application "Numbers"
-open POSIX file "${tempFilePath}"
-set doc to front document
-export doc to POSIX file "${tempCsvDir}" as CSV
-close doc saving no
-end tell`;
-
-        await execFileAsync("osascript", ["-e", appleScript], { timeout: 10000 });
-
-        const sheetMap: Record<string, string> = {};
-        if (fs.existsSync(tempCsvDir)) {
-          const files = fs.readdirSync(tempCsvDir);
-          for (const f of files) {
-            if (f.endsWith(".csv")) {
-              sheetMap[f] = fs.readFileSync(path.join(tempCsvDir, f), "utf-8");
-            }
-          }
-        }
-
-        // Clean up temporary files
-        try {
-          fs.unlinkSync(tempFilePath);
-          if (fs.existsSync(tempCsvDir)) {
-            fs.rmSync(tempCsvDir, { recursive: true, force: true });
-          }
-        } catch {}
-
-        if (Object.keys(sheetMap).length > 0) {
-          const result = parseVestedSpreadsheetSheets(sheetMap);
-          return NextResponse.json(result);
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error("[Numbers File Parse Error]:", msg);
-      }
+      return NextResponse.json(
+        {
+          error:
+            "Apple Numbers (.numbers) format is not supported. Please export and upload your statement in Excel (.xlsx), PDF (.pdf), or CSV (.csv) format.",
+        },
+        { status: 400 }
+      );
     }
 
-    // 2. If Excel file (.xlsx or .xls)
+    // 2. If PDF (.pdf) file
+    if (fileName.endsWith(".pdf")) {
+      const pdfData = await pdfParse(buffer);
+      const result = parseVestedStatementText(pdfData.text);
+      return NextResponse.json(result);
+    }
+
+    // 3. If Excel file (.xlsx or .xls)
     if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
       try {
         const workbook = XLSX.read(buffer, { type: "buffer" });
@@ -123,18 +136,23 @@ end tell`;
       return NextResponse.json(result);
     }
 
-    // 3. If user uploaded a CSV file, explicitly prompt them to use XLSX
+    // 4. If CSV file (.csv)
     if (fileName.endsWith(".csv")) {
-      return NextResponse.json(
-        {
-          error:
-            "CSV format is not supported because Vested CSV exports lack critical multi-sheet transaction and lot details. Please download and upload the Excel (.xlsx) statement from Vested.",
-        },
-        { status: 400 }
-      );
+      const text = buffer.toString("utf-8");
+      try {
+        const sheetResult = parseVestedSpreadsheetSheets({ Sheet1: text });
+        if (sheetResult.success && sheetResult.transactions.length > 0) {
+          return NextResponse.json(sheetResult);
+        }
+      } catch {
+        // Fallback to text parsing
+      }
+
+      const result = parseVestedStatementText(text);
+      return NextResponse.json(result);
     }
 
-    // 4. If plain text file
+    // 5. If plain text file (.txt)
     if (fileName.endsWith(".txt")) {
       const text = buffer.toString("utf-8");
       const parsedTextResult = parseVestedStatementText(text);
@@ -145,16 +163,31 @@ end tell`;
     return NextResponse.json(
       {
         error:
-          "Unsupported file format. Please download and upload your statement in Excel (.xlsx) format from Vested.",
+          "Unsupported file format. Please upload your statement in PDF (.pdf), Excel (.xlsx), or CSV (.csv) format.",
       },
       { status: 400 }
     );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[Statement Upload Route Error]:", message);
+    console.error("[Parse PDF API] Error:", err);
     return NextResponse.json(
-      { error: "Failed to process statement file", details: message },
+      { error: "Failed to process statement file" },
       { status: 500 }
     );
+  } finally {
+    // Clean up any temporary files tracked in tempFilesToClean
+    for (const tempPath of tempFilesToClean) {
+      try {
+        if (fs.existsSync(tempPath)) {
+          const stat = fs.statSync(tempPath);
+          if (stat.isDirectory()) {
+            fs.rmSync(tempPath, { recursive: true, force: true });
+          } else {
+            fs.unlinkSync(tempPath);
+          }
+        }
+      } catch (cleanupErr) {
+        console.error("[Parse PDF API] Cleanup error:", tempPath, cleanupErr);
+      }
+    }
   }
 }

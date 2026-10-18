@@ -15,7 +15,6 @@ import {
   TrendingDown,
   DollarSign,
   Landmark,
-  RefreshCw,
 } from "lucide-react";
 
 // Short-term default of 20% applies until March 2027; user can override.
@@ -90,75 +89,21 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary, portfolio
       ? (taxAdjustedReturn / summary.netInvestedCapital) * 100
       : 0;
 
-  // Pagination for TWR Sub-Periods
+  // Pagination for TWR Sub-Periods (client-side)
   const [twrPage, setTwrPage] = useState(1);
   const [twrPageSize, setTwrPageSize] = useState(10);
-  const [isTwrFetching, setIsTwrFetching] = useState(false);
-  const totalTwr = summary.twrSubPeriods.length;
-  const localTwrPages = Math.max(1, Math.ceil(totalTwr / twrPageSize));
-
-  // Server-side TWR state
-  const [serverTwr, setServerTwr] = useState<{
-    subPeriods: typeof summary.twrSubPeriods;
-    total: number;
-    totalPages: number;
-  } | null>(null);
-
-  const safeTwrPage = Math.min(twrPage, serverTwr ? serverTwr.totalPages : localTwrPages);
+  const displayTwrTotal = summary.twrSubPeriods.length;
+  const displayTwrTotalPages = Math.max(1, Math.ceil(displayTwrTotal / twrPageSize));
+  const safeTwrPage = Math.min(twrPage, displayTwrTotalPages);
   const twrStartIndex = (safeTwrPage - 1) * twrPageSize;
-  const twrEndIndex = Math.min(twrStartIndex + twrPageSize, totalTwr);
-  const localPaginatedTwr = useMemo(() => {
-    return summary.twrSubPeriods.slice(twrStartIndex, twrEndIndex);
-  }, [summary.twrSubPeriods, twrStartIndex, twrEndIndex]);
+  const displayTwr = useMemo(() => {
+    return summary.twrSubPeriods.slice(twrStartIndex, twrStartIndex + twrPageSize);
+  }, [summary.twrSubPeriods, twrStartIndex, twrPageSize]);
 
-  useEffect(() => {
-    if (!portfolioId) {
-      setServerTwr(null);
-      return;
-    }
-    let isCancelled = false;
-    setIsTwrFetching(true);
-    const params = new URLSearchParams({
-      id: portfolioId,
-      resource: "twr",
-      page: String(twrPage),
-      pageSize: String(twrPageSize),
-    });
-
-    fetch(`/api/portfolios?${params.toString()}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Server TWR fetch failed");
-        return res.json();
-      })
-      .then((data) => {
-        if (isCancelled) return;
-        if (data && Array.isArray(data.twrSubPeriods) && data.pagination) {
-          setServerTwr({
-            subPeriods: data.twrSubPeriods,
-            total: data.pagination.total,
-            totalPages: data.pagination.totalPages,
-          });
-        }
-      })
-      .catch((err) => {
-        console.warn("[MetricsDetail] Server TWR fetch failed, using local:", err);
-      })
-      .finally(() => {
-        if (!isCancelled) setIsTwrFetching(false);
-      });
-
-    return () => { isCancelled = true; };
-  }, [portfolioId, twrPage, twrPageSize, summary]);
-
-  const displayTwr = serverTwr ? serverTwr.subPeriods : localPaginatedTwr;
-  const displayTwrTotal = serverTwr ? serverTwr.total : totalTwr;
-  const displayTwrTotalPages = serverTwr ? serverTwr.totalPages : localTwrPages;
-
-  // Pagination & Filtering for Realized Trades
+  // Pagination & Filtering for Realized Trades (client-side)
   const [tradesPage, setTradesPage] = useState(1);
   const [tradesPageSize, setTradesPageSize] = useState(10);
   const [tradesFilter, setTradesFilter] = useState<"ALL" | "SHORT_TERM" | "LONG_TERM">("ALL");
-  const [isTradesFetching, setIsTradesFetching] = useState(false);
 
   const filteredTrades = useMemo(() => {
     if (tradesFilter === "ALL") return summary.realizedTrades;
@@ -169,66 +114,13 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary, portfolio
     setTradesPage(1);
   }, [tradesFilter]);
 
-  const localTradesTotal = filteredTrades.length;
-  const localTradesPages = Math.max(1, Math.ceil(localTradesTotal / tradesPageSize));
-
-  // Server-side Trades state
-  const [serverTrades, setServerTrades] = useState<{
-    trades: typeof summary.realizedTrades;
-    total: number;
-    totalPages: number;
-  } | null>(null);
-
-  const safeTradesPage = Math.min(tradesPage, serverTrades ? serverTrades.totalPages : localTradesPages);
+  const displayTradesTotal = filteredTrades.length;
+  const displayTradesTotalPages = Math.max(1, Math.ceil(displayTradesTotal / tradesPageSize));
+  const safeTradesPage = Math.min(tradesPage, displayTradesTotalPages);
   const tradesStartIndex = (safeTradesPage - 1) * tradesPageSize;
-  const tradesEndIndex = Math.min(tradesStartIndex + tradesPageSize, localTradesTotal);
-  const localPaginatedTrades = useMemo(() => {
-    return filteredTrades.slice(tradesStartIndex, tradesEndIndex);
-  }, [filteredTrades, tradesStartIndex, tradesEndIndex]);
-
-  useEffect(() => {
-    if (!portfolioId) {
-      setServerTrades(null);
-      return;
-    }
-    let isCancelled = false;
-    setIsTradesFetching(true);
-    const params = new URLSearchParams({
-      id: portfolioId,
-      resource: "trades",
-      page: String(tradesPage),
-      pageSize: String(tradesPageSize),
-      taxType: tradesFilter,
-    });
-
-    fetch(`/api/portfolios?${params.toString()}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Server trades fetch failed");
-        return res.json();
-      })
-      .then((data) => {
-        if (isCancelled) return;
-        if (data && Array.isArray(data.realizedTrades) && data.pagination) {
-          setServerTrades({
-            trades: data.realizedTrades,
-            total: data.pagination.total,
-            totalPages: data.pagination.totalPages,
-          });
-        }
-      })
-      .catch((err) => {
-        console.warn("[MetricsDetail] Server trades fetch failed, using local:", err);
-      })
-      .finally(() => {
-        if (!isCancelled) setIsTradesFetching(false);
-      });
-
-    return () => { isCancelled = true; };
-  }, [portfolioId, tradesPage, tradesPageSize, tradesFilter, summary]);
-
-  const displayTrades = serverTrades ? serverTrades.trades : localPaginatedTrades;
-  const displayTradesTotal = serverTrades ? serverTrades.total : localTradesTotal;
-  const displayTradesTotalPages = serverTrades ? serverTrades.totalPages : localTradesPages;
+  const displayTrades = useMemo(() => {
+    return filteredTrades.slice(tradesStartIndex, tradesStartIndex + tradesPageSize);
+  }, [filteredTrades, tradesStartIndex, tradesPageSize]);
 
   return (
     <div className="space-y-6">
@@ -312,14 +204,8 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary, portfolio
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {isTwrFetching && (
-              <span className="flex items-center gap-1.5 text-[11px] font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full animate-pulse">
-                <RefreshCw className="h-3 w-3 animate-spin" />
-                Syncing page...
-              </span>
-            )}
             <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 px-3 py-1 text-xs font-mono text-blue-300">
-              Formula: \(R_{"{TWR}"} = \prod (1 + R_i) - 1\)
+              Formula: R_TWR = ∏(1 + Rᵢ) − 1
             </div>
           </div>
         </div>
@@ -428,12 +314,6 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary, portfolio
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {isTradesFetching && (
-              <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full animate-pulse">
-                <RefreshCw className="h-3 w-3 animate-spin" />
-                Syncing page...
-              </span>
-            )}
             <div className="flex items-center gap-1 rounded-lg bg-slate-950/80 p-0.5 border border-slate-800 text-[11px]">
               {(
                 [

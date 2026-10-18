@@ -203,7 +203,7 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
     fetchFundamentals(ticker);
   }, [fetchFundamentals]);
 
-  const handleSearch = (e: React.SubmitEvent) => {
+  const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (inputTicker.trim()) {
       fetchFundamentals(inputTicker.trim().toUpperCase());
@@ -267,46 +267,21 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
     }
   };
 
-  // Compute Multi-Horizon Valuation (live responsive to input changes & saved on Calculate)
+  // Compute Multi-Horizon Valuation (calculated only from applied values updated on Calculate)
   const valuation: MultiHorizonEpsValuation | null = useMemo(() => {
     if (!financialData) return null;
 
-    const parsedBuyPrice = parseFloat(draftBuyPrice);
     const buyPrice =
-      !isNaN(parsedBuyPrice) && parsedBuyPrice > 0
-        ? parsedBuyPrice
-        : appliedBuyPrice !== null && appliedBuyPrice > 0
+      appliedBuyPrice !== null && appliedBuyPrice > 0
         ? appliedBuyPrice
         : financialData.currentPrice || 100;
-
-    const bearG = parseFloat(draftScenarios.BEAR.epsGrowth);
-    const bearP = parseFloat(draftScenarios.BEAR.exitPE);
-    const baseG = parseFloat(draftScenarios.BASE.epsGrowth);
-    const baseP = parseFloat(draftScenarios.BASE.exitPE);
-    const bullG = parseFloat(draftScenarios.BULL.epsGrowth);
-    const bullP = parseFloat(draftScenarios.BULL.exitPE);
-
-    const scenarios = {
-      BEAR: {
-        epsGrowth: !isNaN(bearG) ? bearG : appliedScenarios.BEAR.epsGrowth,
-        exitPE: !isNaN(bearP) && bearP > 0 ? bearP : appliedScenarios.BEAR.exitPE,
-      },
-      BASE: {
-        epsGrowth: !isNaN(baseG) ? baseG : appliedScenarios.BASE.epsGrowth,
-        exitPE: !isNaN(baseP) && baseP > 0 ? baseP : appliedScenarios.BASE.exitPE,
-      },
-      BULL: {
-        epsGrowth: !isNaN(bullG) ? bullG : appliedScenarios.BULL.epsGrowth,
-        exitPE: !isNaN(bullP) && bullP > 0 ? bullP : appliedScenarios.BULL.exitPE,
-      },
-    };
 
     return calculateMultiHorizonEpsValuation(financialData, {
       purchasePrice: buyPrice,
       startingEps: financialData.trailingEps,
-      scenarios,
+      scenarios: appliedScenarios,
     });
-  }, [financialData, draftBuyPrice, draftScenarios, appliedBuyPrice, appliedScenarios]);
+  }, [financialData, appliedBuyPrice, appliedScenarios]);
 
   // Trajectory Chart Data: Year 0 -> Year 3 -> Year 5 -> Year 10
   const trajectoryChartData = useMemo(() => {

@@ -34,7 +34,8 @@ function initRedis() {
 
     redisClient.on("connect", () => {
       isRedisAvailable = true;
-      console.log("[Redis] Connected successfully to", redisUrl);
+      const sanitized = redisUrl.replace(/:([^@]+)@/, ":****@");
+      console.log("[Redis] Connected successfully to", sanitized);
     });
 
     redisClient.on("error", () => {
@@ -51,6 +52,11 @@ function initRedis() {
   } catch (err) {
     isRedisAvailable = false;
   }
+}
+
+export function getRedisClient(): Redis | null {
+  initRedis();
+  return isRedisAvailable && redisClient ? redisClient : null;
 }
 
 export async function getCachedData<T>(key: string): Promise<T | null> {

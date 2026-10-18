@@ -81,7 +81,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  const handleSaveRename = (e: React.SubmitEvent) => {
+  const handleSaveRename = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (renameValue.trim() && currentPortfolioId) {
       onRenamePortfolio(currentPortfolioId, renameValue.trim());

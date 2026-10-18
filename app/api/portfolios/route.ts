@@ -12,7 +12,10 @@ import { validateTransactionsList } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 
 function getClientIp(req: NextRequest): string {
+  // When behind a trusted reverse proxy (Vercel, Cloudflare), prefer req.ip
+  // In direct-access mode, X-Forwarded-For can be spoofed
   return (
+    (req as any).ip ||
     req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
     req.headers.get("x-real-ip") ||
     "127.0.0.1"
@@ -138,8 +141,9 @@ export async function GET(req: NextRequest) {
     const list = await getAllPortfolios();
     return NextResponse.json({ portfolios: list });
   } catch (err: unknown) {
+    console.error("[Portfolios API GET] Error:", err);
     return NextResponse.json(
-      { error: "Error fetching portfolios", details: err instanceof Error ? err.message : String(err) },
+      { error: "Error fetching portfolios" },
       { status: 500 }
     );
   }
@@ -199,8 +203,9 @@ export async function POST(req: NextRequest) {
     const saved = await savePortfolio(portfolio);
     return NextResponse.json({ portfolio: saved });
   } catch (err: unknown) {
+    console.error("[Portfolios API POST] Error:", err);
     return NextResponse.json(
-      { error: "Error saving portfolio", details: err instanceof Error ? err.message : String(err) },
+      { error: "Error saving portfolio" },
       { status: 500 }
     );
   }
@@ -248,8 +253,9 @@ export async function PATCH(req: NextRequest) {
     const saved = await savePortfolio(existing);
     return NextResponse.json({ portfolio: saved });
   } catch (err: unknown) {
+    console.error("[Portfolios API PATCH] Error:", err);
     return NextResponse.json(
-      { error: "Error updating portfolio", details: err instanceof Error ? err.message : String(err) },
+      { error: "Error updating portfolio" },
       { status: 500 }
     );
   }
@@ -282,8 +288,9 @@ export async function DELETE(req: NextRequest) {
     const success = await deletePortfolio(id);
     return NextResponse.json({ success, id });
   } catch (err: unknown) {
+    console.error("[Portfolios API DELETE] Error:", err);
     return NextResponse.json(
-      { error: "Error deleting portfolio", details: err instanceof Error ? err.message : String(err) },
+      { error: "Error deleting portfolio" },
       { status: 500 }
     );
   }

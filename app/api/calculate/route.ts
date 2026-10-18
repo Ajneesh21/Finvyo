@@ -7,13 +7,21 @@ import { updatePortfolioSummary } from "@/lib/storage";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function getClientIp(req: NextRequest): string {
+  // When behind a trusted reverse proxy (Vercel, Cloudflare), prefer req.ip
+  // In direct-access mode, X-Forwarded-For can be spoofed
+  return (
+    (req as any).ip ||
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
+    req.headers.get("x-real-ip") ||
+    "127.0.0.1"
+  );
+}
+
 export async function POST(req: NextRequest) {
   try {
     // 1. Rate Limiting per IP
-    const ip =
-      req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
-      req.headers.get("x-real-ip") ||
-      "127.0.0.1";
+    const ip = getClientIp(req);
 
     const rateCheck = await checkRateLimit(`calc:${ip}`, {
       maxRequests: 45,
@@ -56,10 +64,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ summary });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[Calculate API Error]:", message);
+    console.error("[Calculate API] Error:", err);
     return NextResponse.json(
-      { error: "Calculation failed", details: message },
+      { error: "Calculation failed" },
       { status: 500 }
     );
   }

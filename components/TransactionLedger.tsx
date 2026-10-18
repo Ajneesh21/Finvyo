@@ -32,11 +32,20 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
   onExportCsv,
 }) => {
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterType, setFilterType] = useState<string>("ALL");
   const [sortDesc, setSortDesc] = useState(true);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   // Server-side pagination state
   const [serverData, setServerData] = useState<{
@@ -50,7 +59,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
   // Reset to page 1 whenever search, filter, or sorting changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterType, sortDesc]);
+  }, [debouncedSearch, filterType, sortDesc]);
 
   // Fetch from server on page / filter / search / sort / portfolio change
   useEffect(() => {
@@ -69,7 +78,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
       pageSize: String(pageSize),
       sort: sortDesc ? "desc" : "asc",
     });
-    if (search.trim()) params.set("search", search.trim());
+    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
     if (filterType !== "ALL") params.set("type", filterType);
 
     fetch(`/api/portfolios?${params.toString()}`)
@@ -98,7 +107,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [portfolioId, currentPage, pageSize, search, filterType, sortDesc, transactions]);
+  }, [portfolioId, currentPage, pageSize, debouncedSearch, filterType, sortDesc, transactions]);
 
   // Client-side fallback computation
   const filtered = useMemo(() => {

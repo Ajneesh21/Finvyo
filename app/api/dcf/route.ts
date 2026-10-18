@@ -4,13 +4,46 @@ import { getStockQuote } from "@/lib/stock-api";
 import { getCachedData, setCachedData } from "@/lib/redis";
 import { FinancialData, HistoricalYearData } from "@/lib/dcf-types";
 import { getTickerSector } from "@/lib/utils";
+import { checkRateLimit } from "@/lib/rate-limiter";
 
 export const dynamic = "force-dynamic";
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 const DCF_CACHE_TTL = 3600; // 1 hour cache for fundamentals
 
+function getClientIp(req: NextRequest): string {
+  // When behind a trusted reverse proxy (Vercel, Cloudflare), prefer req.ip
+  // In direct-access mode, X-Forwarded-For can be spoofed
+  return (
+    (req as any).ip ||
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
+    req.headers.get("x-real-ip") ||
+    "127.0.0.1"
+  );
+}
+
 export async function GET(req: NextRequest) {
+  const ip = getClientIp(req);
+  const rateCheck = await checkRateLimit(`dcf:${ip}`, {
+    maxRequests: 30,
+    windowSeconds: 60,
+  });
+
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      {
+        error: "Rate limit exceeded. Please wait.",
+        retryAfter: rateCheck.resetInSeconds,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rateCheck.resetInSeconds),
+        },
+      }
+    );
+  }
+
   const { searchParams } = new URL(req.url);
   const tickerParam = searchParams.get("ticker") || searchParams.get("symbol");
 
@@ -22,6 +55,13 @@ export async function GET(req: NextRequest) {
   }
 
   const symbol = tickerParam.trim().toUpperCase();
+  const symbolRegex = /^[A-Z0-9.\^=_-]{1,10}$/i;
+  if (!symbolRegex.test(symbol)) {
+    return NextResponse.json(
+      { error: "Invalid ticker symbol parameter" },
+      { status: 400 }
+    );
+  }
   const cacheKey = `dcf:fundamentals:v4:${symbol}`;
 
   // Check redis / in-memory cache
@@ -431,12 +471,10 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ financialData, fromCache: false });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error(`[DCF API Error for ${symbol}]:`, errorMsg);
+    console.error(`[DCF API] Error for ${symbol}:`, err);
     return NextResponse.json(
       {
         error: `Failed to fetch financial data for ${symbol}`,
-        details: errorMsg,
       },
       { status: 500 }
     );
