@@ -68,13 +68,6 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
   const handleFileSelect = async (file: File) => {
     if (!file) return;
 
-    if (file.name.toLowerCase().endsWith(".csv")) {
-      setUploadError(
-        "CSV format is not supported because Vested CSV exports lack critical multi-sheet transaction and lot details. Please download and upload your statement in Excel (.xlsx) format from Vested."
-      );
-      return;
-    }
-
     setFileName(file.name);
     setIsUploading(true);
     setUploadError(null);
@@ -220,7 +213,7 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
               }`}
             >
               <Upload className="h-3.5 w-3.5" />
-              <span>Upload Vested Excel (.xlsx)</span>
+              <span>Upload Vested Statement (.xlsx / .csv)</span>
             </button>
             <button
               onClick={() => setActiveTab("paste")}
@@ -257,7 +250,7 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".xlsx,.xls,.numbers"
+                accept=".xlsx,.xls,.csv"
                 onChange={(e) => {
                   if (e.target.files && e.target.files.length > 0) {
                     handleFileSelect(e.target.files[0]);
@@ -282,10 +275,10 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
                     <FileSpreadsheet className="h-7 w-7" />
                   </div>
                   <p className="text-sm font-medium text-white">
-                    Click to browse or drag & drop Vested Excel file
+                    Click to browse or drag & drop Vested export file
                   </p>
                   <p className="mt-1 text-xs text-slate-400">
-                    Please download the <span className="font-semibold text-slate-300">.xlsx</span> statement from Vested (CSV is not supported due to missing transaction details)
+                    Upload your <span className="font-semibold text-slate-300">.xlsx</span> or <span className="font-semibold text-slate-300">.csv</span> export from Vested
                   </p>
                 </>
               )}

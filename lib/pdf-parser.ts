@@ -56,6 +56,23 @@ interface ExtractedHolding {
 export function parseVestedXlsxBuffer(buffer: Buffer): ParsedPdfResult {
   try {
     const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+
+    // First attempt: unified spreadsheet parser across all sheets
+    try {
+      const sheetMap: Record<string, string> = {};
+      for (const sheetName of workbook.SheetNames) {
+        sheetMap[sheetName] = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
+      }
+      // Dynamic import to avoid circular dependency
+      const { parseVestedSpreadsheetSheets } = require("./vested-sheet-parser");
+      const sheetResult = parseVestedSpreadsheetSheets(sheetMap);
+      if (sheetResult.success && sheetResult.transactions.length > 0) {
+        return sheetResult;
+      }
+    } catch {
+      // Continue to row-by-row fallback
+    }
+
     const transactions: Transaction[] = [];
     let txCounter = 1;
 
@@ -215,6 +232,25 @@ export function parseVestedXlsxBuffer(buffer: Buffer): ParsedPdfResult {
  * Robustly parses BOTH the Open Holdings / Positions table AND the Activity Ledger.
  */
 export function parseVestedStatementText(rawText: string): ParsedPdfResult {
+  // If the raw text is CSV / spreadsheet-formatted text, use the dedicated spreadsheet parser
+  if (
+    rawText.includes(",") &&
+    (/date.*time/i.test(rawText) ||
+      /drivewealth/i.test(rawText) ||
+      /account\s*balance/i.test(rawText) ||
+      /ticker.*activity/i.test(rawText))
+  ) {
+    try {
+      const { parseVestedSpreadsheetSheets } = require("./vested-sheet-parser");
+      const spreadsheetResult = parseVestedSpreadsheetSheets({ Pasted: rawText });
+      if (spreadsheetResult.success && spreadsheetResult.transactions.length > 0) {
+        return spreadsheetResult;
+      }
+    } catch {
+      // Fallback to text parsing
+    }
+  }
+
   const lines = rawText
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -596,7 +632,7 @@ function extractHoldingsTable(lines: string[]): ExtractedHolding[] {
 /**
  * Resolves ticker symbol from line text or company names
  */
-function resolveTickerFromLine(line: string): string {
+export function resolveTickerFromLine(line: string): string {
   const upper = line.toUpperCase();
 
   for (const [company, ticker] of Object.entries(COMPANY_TO_TICKER)) {

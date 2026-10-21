@@ -764,7 +764,7 @@ export function calculateMultiHorizonEpsValuation(
 
       // Expected annual return (CAGR) from purchase price to final price
       const expectedCagr =
-        purchasePrice > 0
+        purchasePrice > 0 && finalPrice > 0
           ? (Math.pow(finalPrice / purchasePrice, 1 / N) - 1) * 100
           : 0;
 
@@ -886,9 +886,9 @@ export function calculateMultiHorizonEpsValuation(
       const f5 = startingEps * Math.pow(1 + g, 5) * pe;
       const f10 = startingEps * Math.pow(1 + g, 10) * pe;
 
-      const cagr3 = purchasePrice > 0 ? (Math.pow(f3 / purchasePrice, 1 / 3) - 1) * 100 : 0;
-      const cagr5 = purchasePrice > 0 ? (Math.pow(f5 / purchasePrice, 1 / 5) - 1) * 100 : 0;
-      const cagr10 = purchasePrice > 0 ? (Math.pow(f10 / purchasePrice, 1 / 10) - 1) * 100 : 0;
+      const cagr3 = purchasePrice > 0 && f3 > 0 ? (Math.pow(f3 / purchasePrice, 1 / 3) - 1) * 100 : 0;
+      const cagr5 = purchasePrice > 0 && f5 > 0 ? (Math.pow(f5 / purchasePrice, 1 / 5) - 1) * 100 : 0;
+      const cagr10 = purchasePrice > 0 && f10 > 0 ? (Math.pow(f10 / purchasePrice, 1 / 10) - 1) * 100 : 0;
       const fair5 = f5 / Math.pow(1 + r, 5);
 
       row.push({

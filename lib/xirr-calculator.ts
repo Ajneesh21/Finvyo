@@ -106,6 +106,7 @@ export function calculateXIRR(
     const years = dayFractions[dayFractions.length - 1] || 1;
     if (totalOut > 0) {
       const simpleReturn = (totalIn - totalOut) / totalOut;
+      if (1 + simpleReturn <= 0) return -100;
       return (Math.pow(1 + simpleReturn, 1 / Math.max(0.1, years)) - 1) * 100;
     }
     return 0;

@@ -760,7 +760,14 @@ async function generatePortfolioTimeline(
       } else {
         const sortedHistDates = Array.from(hist.keys()).sort();
         if (sortedHistDates.length > 0) {
-          initialPrice = hist.get(sortedHistDates[0])!;
+          const earliestHistDate = sortedHistDates[0];
+          const diffDays = Math.abs(
+            (new Date(earliestHistDate).getTime() - new Date(startDateStr).getTime()) /
+              (1000 * 86400)
+          );
+          if (diffDays <= 14) {
+            initialPrice = hist.get(earliestHistDate)!;
+          }
         }
       }
     }

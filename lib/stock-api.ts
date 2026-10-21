@@ -221,8 +221,11 @@ export async function getStockDailyHistory(
   try {
     // If we already have older data, only fetch from the last known date onwards
     let fetchStartDate = startDateStr;
-    if (persistentData && persistentData.points.length > 0 && persistentData.lastFetchedDate) {
-      fetchStartDate = persistentData.lastFetchedDate;
+    if (persistentData && persistentData.points.length > 0) {
+      const latestPoint = persistentData.points[persistentData.points.length - 1];
+      if (latestPoint && latestPoint.date > startDateStr) {
+        fetchStartDate = latestPoint.date;
+      }
     }
 
     const period1 =

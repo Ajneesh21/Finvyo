@@ -55,15 +55,74 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
     return slice.length > 0 ? slice : timeline;
   }, [timeline, timeframe]);
 
+  // Smart non-repeating ticks for X-axis
+  const xAxisTicks = useMemo(() => {
+    if (!filteredData || filteredData.length === 0) return [];
+    if (filteredData.length <= 10) {
+      return filteredData.map((d) => d.date);
+    }
+
+    if (filteredData.length <= 45) {
+      // Pick ~5-6 evenly spaced ticks
+      const step = Math.max(1, Math.floor(filteredData.length / 5));
+      const ticks: string[] = [];
+      for (let i = 0; i < filteredData.length; i += step) {
+        ticks.push(filteredData[i].date);
+      }
+      const last = filteredData[filteredData.length - 1].date;
+      if (ticks[ticks.length - 1] !== last) ticks.push(last);
+      return Array.from(new Set(ticks));
+    }
+
+    if (filteredData.length <= 90) {
+      // Pick 1st and 15th of each month (or nearest trading day)
+      const ticks: string[] = [];
+      let lastMonthHalf = "";
+      filteredData.forEach((pt) => {
+        const parts = pt.date.split("-");
+        const month = parts[1];
+        const day = parseInt(parts[2], 10);
+        const half = day <= 15 ? "H1" : "H2";
+        const key = `${parts[0]}-${month}-${half}`;
+        if (key !== lastMonthHalf) {
+          ticks.push(pt.date);
+          lastMonthHalf = key;
+        }
+      });
+      const last = filteredData[filteredData.length - 1].date;
+      if (ticks[ticks.length - 1] !== last) ticks.push(last);
+      return Array.from(new Set(ticks));
+    }
+
+    // Multi-month view (> 90 days): 6M, 1Y, YTD, ALL
+    // Pick the first trading day of each month
+    const ticks: string[] = [];
+    let lastMonth = "";
+    filteredData.forEach((pt) => {
+      const month = pt.date.substring(0, 7); // YYYY-MM
+      if (month !== lastMonth) {
+        ticks.push(pt.date);
+        lastMonth = month;
+      }
+    });
+
+    const last = filteredData[filteredData.length - 1].date;
+    if (ticks[ticks.length - 1] !== last) {
+      ticks.push(last);
+    }
+    return Array.from(new Set(ticks));
+  }, [filteredData]);
+
   // Smart date formatter for X-axis ticks
   const formatXAxisDate = (dateVal?: any) => {
     if (!dateVal) return "";
     const dateStr = String(dateVal);
+    const lastDate = filteredData[filteredData.length - 1]?.date;
     const todayStr = new Date().toISOString().split("T")[0];
-    if (dateStr === todayStr) return "Today";
+    if (dateStr === todayStr || dateStr === lastDate) return "Today";
 
     // Format based on range length
-    if (filteredData.length <= 45) {
+    if (filteredData.length <= 90) {
       try {
         const parts = dateStr.split("-");
         if (parts.length === 3) {
@@ -76,7 +135,12 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
       return formatDate(dateStr, "MMM d");
     }
 
-    return formatDate(dateStr, "MMM yy");
+    // Check if data spans across multiple years
+    const firstYear = filteredData[0]?.date?.split("-")[0];
+    const lastYear = lastDate?.split("-")[0];
+    const spansMultipleYears = firstYear && lastYear && firstYear !== lastYear;
+
+    return formatDate(dateStr, spansMultipleYears ? "MMM ''yy" : "MMM");
   };
 
   const formatTooltipDate = (dateVal?: any) => {
@@ -279,8 +343,10 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
               <XAxis
                 dataKey="date"
                 stroke="#64748b"
+                ticks={xAxisTicks}
                 tickFormatter={formatXAxisDate}
                 tick={{ fontSize: 11 }}
+                interval={0}
               />
               <YAxis
                 stroke="#64748b"
@@ -353,8 +419,10 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
               <XAxis
                 dataKey="date"
                 stroke="#64748b"
+                ticks={xAxisTicks}
                 tickFormatter={formatXAxisDate}
                 tick={{ fontSize: 11 }}
+                interval={0}
               />
               <YAxis
                 stroke="#64748b"

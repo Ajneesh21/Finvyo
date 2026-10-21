@@ -615,15 +615,15 @@ describe("Portfolio Risk Metrics (Volatility, Sharpe, Max Drawdown)", () => {
     // Portfolio with steady 0% stock movement but massive cash deposits ($1,000 -> $5,000 -> $10,000)
     const transactions: Transaction[] = [
       { id: "d1", date: "2024-01-01T10:00:00Z", type: "DEPOSIT", symbol: "CASH", shares: 0, price: 1, amount: 1000 },
-      { id: "b1", date: "2024-01-02T10:00:00Z", type: "BUY", symbol: "AAPL", shares: 10, price: 100, amount: 1000 },
+      { id: "b1", date: "2024-01-02T10:00:00Z", type: "BUY", symbol: "TEST_FLAT", shares: 10, price: 100, amount: 1000 },
       { id: "d2", date: "2024-01-05T10:00:00Z", type: "DEPOSIT", symbol: "CASH", shares: 0, price: 1, amount: 5000 },
-      { id: "b2", date: "2024-01-08T10:00:00Z", type: "BUY", symbol: "AAPL", shares: 50, price: 100, amount: 5000 },
+      { id: "b2", date: "2024-01-08T10:00:00Z", type: "BUY", symbol: "TEST_FLAT", shares: 50, price: 100, amount: 5000 },
       { id: "d3", date: "2024-01-10T10:00:00Z", type: "DEPOSIT", symbol: "CASH", shares: 0, price: 1, amount: 10000 },
     ];
 
     const quotesOverride: Record<string, StockQuote> = {
-      AAPL: {
-        symbol: "AAPL",
+      TEST_FLAT: {
+        symbol: "TEST_FLAT",
         regularMarketPrice: 100,
         regularMarketChange: 0,
         regularMarketChangePercent: 0,
@@ -994,6 +994,68 @@ describe("Offline Resilience & Price Persistence Engine", () => {
     assert.ok(Math.abs(h.dayChangePercent - (-1.93)) < 0.05);
   });
 });
+
+describe("Vested Unified Spreadsheet Parser (New Stacked Format)", () => {
+  const sampleVestedCsv = `Name, AJNEESH
+Email,ajneesh2001@gmail.com
+DriveWealth Account Number,VSJM000610
+Account Opening Date,19.02.2025
+Date,Time (in UTC),Type,Amount,Currency,Account Balance ,Comment  
+2026-10-19,06:38:50 PM,SPUR,130.04,USD,943.06,Oracle Corp. Market Buy
+2026-10-19,06:38:30 PM,SPUR,208.96,USD,1073.1,"Netflix, Inc. Market Buy"
+2026-10-16,12:41:42 PM,DIVTAX,-0.69,USD,1282.06,Intuit Inc. Dividend Tax
+2026-10-16,12:41:42 PM,DIV,2.76,USD,1282.75,Intuit Inc. Dividend
+2026-10-15,09:08:56 AM,CSR,1000,USD,1503.1,Deposit
+Date,Time (in UTC),Name,Ticker,Activity,Order Type,Quantity,Price Per Share,Cash Amount,Commission Charges,Currency
+2026-10-19,06:38:50 PM,Oracle Corp.,ORCL,Buy,Market,1,129.72,130.04,0.32,USD
+2026-10-19,06:38:30 PM,"Netflix, Inc.",NFLX,Buy,Market,3,69.48,208.96,0.52,USD
+Date,Time (in UTC),Activity,Cash Amount,Currency
+2026-10-15,09:08:56 AM,Deposit,1000,USD
+Date,Time (in UTC),Activity,Ticker,Gross Cash Amount,Currency
+2026-10-16,12:41:42 PM,Tax,INTU,-0.69,USD
+2026-10-16,12:41:42 PM,Dividend,INTU,2.76,USD
+Transaction Type,Description
+CSD,Withdrawal of funds from your Vested account.
+CSR,Deposit of funds into your Vested account.`;
+
+  it("should parse stacked tables from single-sheet CSV export accurately", async () => {
+    const { parseVestedSpreadsheetSheets } = await import("../lib/vested-sheet-parser");
+    const result = parseVestedSpreadsheetSheets({ Sheet1: sampleVestedCsv });
+
+    assert.equal(result.success, true);
+    assert.equal(result.accountInfo?.investorName, "AJNEESH");
+    assert.equal(result.accountInfo?.accountNumber, "VSJM000610");
+    assert.equal(result.accountInfo?.cashBalance, 943.06);
+
+    // 2 trades + 1 transfer + 2 income = 5 transactions
+    assert.equal(result.transactions.length, 5);
+
+    // Check chronological ordering: oldest first (Oct 15 deposit -> Oct 16 tax/div -> Oct 19 buys)
+    assert.equal(result.transactions[0].type, "DEPOSIT");
+    assert.equal(result.transactions[0].amount, 1000);
+    assert.equal(result.transactions[0].accountBalance, 1503.1);
+
+    const orclTx = result.transactions.find((t) => t.symbol === "ORCL");
+    assert.ok(orclTx);
+    assert.equal(orclTx?.type, "BUY");
+    assert.equal(orclTx?.shares, 1);
+    assert.equal(orclTx?.price, 129.72);
+    assert.equal(orclTx?.amount, -130.04);
+    assert.equal(orclTx?.fee, 0.32);
+    assert.equal(orclTx?.accountBalance, 943.06);
+  });
+
+  it("should parse pasted CSV text via parseVestedStatementText delegating seamlessly", async () => {
+    const { parseVestedStatementText } = await import("../lib/pdf-parser");
+    const result = parseVestedStatementText(sampleVestedCsv);
+
+    assert.equal(result.success, true);
+    assert.equal(result.accountInfo?.investorName, "AJNEESH");
+    assert.equal(result.accountInfo?.cashBalance, 943.06);
+    assert.equal(result.transactions.length, 5);
+  });
+});
+
 
 
 

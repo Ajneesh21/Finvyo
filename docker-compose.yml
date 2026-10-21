@@ -18,7 +18,7 @@ services:
     depends_on:
       - redis
     volumes:
-      - app-storage:/app/data
+      - ./data:/app/data
 
   redis:
     image: redis:8-alpine
@@ -35,5 +35,4 @@ services:
       - redis-data:/data
 
 volumes:
-  app-storage:
   redis-data:
