@@ -15,11 +15,37 @@ function sanitizeCsvField(val: unknown): string {
 function syncLocalBackup(ports: StoredPortfolio[]): void {
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("finvyo_portfolios_backup", JSON.stringify(ports));
+      // Clean up legacy unencrypted persistent storage
+      localStorage.removeItem("finvyo_portfolios_backup");
+      // Keep only in ephemeral sessionStorage (wiped automatically on browser close)
+      sessionStorage.setItem("finvyo_portfolios_session", JSON.stringify(ports));
     } catch {
       // Ignore quota errors
     }
   }
+}
+
+function getLocalFallback(): StoredPortfolio[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const sessionData = sessionStorage.getItem("finvyo_portfolios_session");
+    if (sessionData) {
+      const parsed = JSON.parse(sessionData);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+
+    // One-time security migration: scrub persistent localStorage and move to session
+    const legacy = localStorage.getItem("finvyo_portfolios_backup");
+    if (legacy) {
+      localStorage.removeItem("finvyo_portfolios_backup");
+      const parsed = JSON.parse(legacy);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        sessionStorage.setItem("finvyo_portfolios_session", legacy);
+        return parsed;
+      }
+    }
+  } catch {}
+  return [];
 }
 
 export function usePortfolio() {
@@ -102,25 +128,19 @@ export function usePortfolio() {
           storedList = data.portfolios || [];
         }
 
-        // Resilient fallback: If server returned empty, check browser localStorage backup
-        if (storedList.length === 0 && typeof window !== "undefined") {
-          try {
-            const local = localStorage.getItem("finvyo_portfolios_backup");
-            if (local) {
-              const parsed = JSON.parse(local);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                storedList = parsed;
-                // Re-sync backup to server in background
-                for (const port of storedList) {
-                  fetch("/api/portfolios", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(port),
-                  }).catch(() => {});
-                }
-              }
+        // Resilient fallback: If server returned empty, check browser ephemeral session backup
+        if (storedList.length === 0) {
+          storedList = getLocalFallback();
+          if (storedList.length > 0) {
+            // Re-sync backup to server in background
+            for (const port of storedList) {
+              fetch("/api/portfolios", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(port),
+              }).catch(() => {});
             }
-          } catch {}
+          }
         }
 
         if (storedList.length > 0) {
@@ -148,24 +168,17 @@ export function usePortfolio() {
         }
       } catch (err) {
         console.error("Failed to load stored portfolios:", err instanceof Error ? err.message : String(err));
-        // Also try localStorage if fetch itself failed (e.g. network/server reload)
-        if (typeof window !== "undefined") {
-          try {
-            const local = localStorage.getItem("finvyo_portfolios_backup");
-            if (local) {
-              const parsed = JSON.parse(local);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                const defaultPort = parsed.find((p: StoredPortfolio) => p.isDefault) || parsed[0];
-                setPortfolios(parsed);
-                setCurrentPortfolioId(defaultPort.id);
-                setPortfolioName(defaultPort.name);
-                setTransactions(defaultPort.transactions);
-                if (defaultPort.lastComputedSummary) {
-                  setSummary(defaultPort.lastComputedSummary);
-                }
-              }
-            }
-          } catch {}
+        // Also try session fallback if fetch itself failed (e.g. transient network glitch)
+        const sessionFallback = getLocalFallback();
+        if (sessionFallback.length > 0) {
+          const defaultPort = sessionFallback.find((p: StoredPortfolio) => p.isDefault) || sessionFallback[0];
+          setPortfolios(sessionFallback);
+          setCurrentPortfolioId(defaultPort.id);
+          setPortfolioName(defaultPort.name);
+          setTransactions(defaultPort.transactions);
+          if (defaultPort.lastComputedSummary) {
+            setSummary(defaultPort.lastComputedSummary);
+          }
         }
         setIsLoading(false);
       }

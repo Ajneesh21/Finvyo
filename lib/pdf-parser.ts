@@ -51,11 +51,64 @@ interface ExtractedHolding {
 }
 
 /**
+ * Scans a buffer for potential Prototype Pollution signatures or malicious XML payloads
+ * before passing to spreadsheet/PDF parsers.
+ */
+export function validateSafeBuffer(buffer: Buffer): { safe: boolean; error?: string } {
+  const sampleSize = Math.min(buffer.length, 1024 * 1024);
+  const sample = buffer.toString("utf-8", 0, sampleSize);
+
+  const dangerousPatterns = [
+    /__proto__/i,
+    /constructor\s*\.\s*prototype/i,
+    /<[^>]*\bid\s*=\s*['"]?__proto__/i,
+    /<[^>]*\bid\s*=\s*['"]?constructor/i,
+  ];
+
+  for (const pattern of dangerousPatterns) {
+    if (pattern.test(sample)) {
+      return {
+        safe: false,
+        error: "File rejected: suspicious or potentially malicious content detected.",
+      };
+    }
+  }
+
+  return { safe: true };
+}
+
+/**
+ * Safely reads a spreadsheet workbook with pre-scan and prototype-pollution auditing.
+ */
+export function safeReadWorkbook(
+  buffer: Buffer,
+  options?: XLSX.ParsingOptions
+): XLSX.WorkBook {
+  const safety = validateSafeBuffer(buffer);
+  if (!safety.safe) {
+    throw new Error(safety.error || "Unsafe spreadsheet content");
+  }
+
+  const propsBefore = new Set(Object.getOwnPropertyNames(Object.prototype));
+  try {
+    return XLSX.read(buffer, options);
+  } finally {
+    const propsAfter = Object.getOwnPropertyNames(Object.prototype);
+    for (const prop of propsAfter) {
+      if (!propsBefore.has(prop)) {
+        delete (Object.prototype as any)[prop];
+        throw new Error("Security Alert: Prototype pollution attempt thwarted.");
+      }
+    }
+  }
+}
+
+/**
  * Parses XLSX / XLS spreadsheet buffer exported from Vested / DriveWealth
  */
 export function parseVestedXlsxBuffer(buffer: Buffer): ParsedPdfResult {
   try {
-    const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+    const workbook = safeReadWorkbook(buffer, { type: "buffer", cellDates: true });
 
     // First attempt: unified spreadsheet parser across all sheets
     try {

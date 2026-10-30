@@ -3,7 +3,12 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import pdfParse from "pdf-parse";
-import { parseVestedStatementText, parseVestedXlsxBuffer } from "@/lib/pdf-parser";
+import {
+  parseVestedStatementText,
+  parseVestedXlsxBuffer,
+  safeReadWorkbook,
+  validateSafeBuffer,
+} from "@/lib/pdf-parser";
 import { parseVestedSpreadsheetSheets } from "@/lib/vested-sheet-parser";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limiter";
 import * as XLSX from "xlsx";
@@ -85,6 +90,15 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
+    // Pre-scan file buffer for dangerous injection or prototype pollution payloads
+    const bufferCheck = validateSafeBuffer(buffer);
+    if (!bufferCheck.safe) {
+      return NextResponse.json(
+        { error: bufferCheck.error || "Unsafe file content detected." },
+        { status: 400 }
+      );
+    }
+
     // 1. If Apple Numbers (.numbers) file - unsupported (osascript execution removed for security)
     if (fileName.endsWith(".numbers")) {
       return NextResponse.json(
@@ -106,7 +120,7 @@ export async function POST(req: NextRequest) {
     // 3. If Excel file (.xlsx or .xls)
     if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
       try {
-        const workbook = XLSX.read(buffer, { type: "buffer" });
+        const workbook = safeReadWorkbook(buffer, { type: "buffer" });
         const sheetMap: Record<string, string> = {};
         for (const sheetName of workbook.SheetNames) {
           const csvText = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);

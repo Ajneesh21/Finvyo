@@ -15,6 +15,7 @@ import {
   Download,
   AlertTriangle,
   Menu,
+  LogOut,
 } from "lucide-react";
 import { StoredPortfolio } from "@/lib/storage";
 
@@ -110,6 +111,17 @@ export const Navbar: React.FC<NavbarProps> = ({
     const timer = setInterval(checkMarket, 60000);
     return () => clearInterval(timer);
   }, []);
+
+  const handleLogout = async () => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem("finvyo_portfolios_backup");
+        sessionStorage.clear();
+      } catch {}
+    }
+    await fetch("/api/auth", { method: "DELETE" }).catch(() => {});
+    window.location.href = "/login";
+  };
 
   const handleSaveRename = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -307,6 +319,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Upload className="h-3.5 w-3.5" />
             <span>Upload Statement</span>
           </button>
+
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-800/80 px-2.5 py-1.5 text-xs font-medium text-slate-400 transition hover:bg-rose-500/10 hover:border-rose-500/30 hover:text-rose-300 flex-shrink-0"
+            title="Sign out of Finvyo"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            <span className="hidden xl:inline">Logout</span>
+          </button>
         </div>
       </div>
 
@@ -491,6 +512,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </div>
                       </button>
                     )}
+
+                    <button
+                      onClick={() => {
+                        setIsDrawerOpen(false);
+                        handleLogout();
+                      }}
+                      className="flex w-full items-center justify-between rounded-xl border border-rose-500/20 bg-rose-500/10 px-3.5 py-2.5 text-xs font-medium text-rose-300 hover:bg-rose-500/20 transition pt-2"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <LogOut className="h-4 w-4 text-rose-400" />
+                        <span>Sign Out (Logout)</span>
+                      </div>
+                    </button>
                   </div>
                 </div>
               </div>
