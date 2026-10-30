@@ -6,7 +6,9 @@ const ACCESS_TOKEN_COOKIE = "finvyo_token";
 const REFRESH_TOKEN_COOKIE = "finvyo_refresh";
 
 function getSecret(): Uint8Array {
-  return new TextEncoder().encode(process.env.JWT_SECRET || "");
+  const secret =
+    process.env.JWT_SECRET || "finvyo_default_jwt_secret_dev_32chars_len!";
+  return new TextEncoder().encode(secret);
 }
 
 async function verify(token: string) {
@@ -18,8 +20,15 @@ async function verify(token: string) {
   }
 }
 
-async function freshAccessToken(): Promise<string> {
-  return new SignJWT({ role: "admin", type: "access" })
+async function freshAccessToken(userPayload: any): Promise<string> {
+  return new SignJWT({
+    userId: userPayload.userId,
+    username: userPayload.username,
+    email: userPayload.email,
+    storageFolderKey: userPayload.storageFolderKey,
+    role: userPayload.role || "user",
+    type: "access",
+  })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("15m")
@@ -29,34 +38,56 @@ async function freshAccessToken(): Promise<string> {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow login page and auth API through
-  if (pathname.startsWith("/login") || pathname.startsWith("/api/auth")) {
+  // Allow login page, register page, static assets, and auth endpoints
+  if (
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/register") ||
+    pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/_next") ||
+    pathname.includes(".")
+  ) {
     return NextResponse.next();
   }
 
   const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
   const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
-  const jwtSecret = process.env.JWT_SECRET;
-
-  if (!jwtSecret) {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
 
   // 1. Try access token first
   if (accessToken) {
     const payload = await verify(accessToken);
-    if (payload?.type === "access") {
-      return NextResponse.next(); // ✅ Valid access token
+    if (payload?.type === "access" && payload.userId) {
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set("x-user-id", String(payload.userId));
+      requestHeaders.set("x-user-name", String(payload.username || ""));
+      requestHeaders.set("x-user-email", String(payload.email || ""));
+      requestHeaders.set("x-user-folder", String(payload.storageFolderKey || ""));
+
+      return NextResponse.next({
+        request: {
+          headers: requestHeaders,
+        },
+      });
     }
   }
 
   // 2. Access token missing/expired — try refresh token
   if (refreshToken) {
     const payload = await verify(refreshToken);
-    if (payload?.type === "refresh") {
-      // ✅ Valid refresh token — silently issue new access token
-      const newAccessToken = await freshAccessToken();
-      const response = NextResponse.next();
+    if (payload?.type === "refresh" && payload.userId) {
+      const newAccessToken = await freshAccessToken(payload);
+
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set("x-user-id", String(payload.userId));
+      requestHeaders.set("x-user-name", String(payload.username || ""));
+      requestHeaders.set("x-user-email", String(payload.email || ""));
+      requestHeaders.set("x-user-folder", String(payload.storageFolderKey || ""));
+
+      const response = NextResponse.next({
+        request: {
+          headers: requestHeaders,
+        },
+      });
+
       response.cookies.set(ACCESS_TOKEN_COOKIE, newAccessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
@@ -64,11 +95,20 @@ export async function middleware(request: NextRequest) {
         maxAge: 60 * 15, // 15 minutes
         path: "/",
       });
+
       return response;
     }
   }
 
-  // 3. Both tokens invalid — redirect to login
+  // 3. For API routes, return 401 JSON instead of redirecting to /login HTML
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { error: "Unauthorized. Please sign in." },
+      { status: 401 }
+    );
+  }
+
+  // 4. For page navigation, redirect to /login
   const response = NextResponse.redirect(new URL("/login", request.url));
   response.cookies.delete(ACCESS_TOKEN_COOKIE);
   response.cookies.delete(REFRESH_TOKEN_COOKIE);
@@ -76,6 +116,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|public).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
-
