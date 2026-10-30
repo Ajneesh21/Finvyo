@@ -135,7 +135,7 @@ export default function Home() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-3 sm:py-6 space-y-4 sm:space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-2.5 sm:px-6 py-2.5 sm:py-6 space-y-3.5 sm:space-y-6">
         {/* Desktop Tab Navigation Bar (hidden on mobile, mobile uses hamburger drawer) */}
         <div className="hidden sm:flex items-center justify-between border-b border-slate-800 pb-2 overflow-x-auto no-scrollbar touch-pan-x">
           <div className="flex items-center gap-1.5 sm:gap-1">

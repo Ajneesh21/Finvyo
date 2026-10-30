@@ -149,13 +149,13 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
         </div>
       </div>
 
-      {/* Main KPI Grid */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        {/* Card 1: Stock Portfolio Valuation */}
-        <div className="group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-4 sm:p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
+      {/* Main KPI Grid: 2-column compact on mobile with Hero card, 5-col on desktop */}
+      <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-5">
+        {/* Card 1: Stock Portfolio Valuation (Hero card spans 2 cols on mobile) */}
+        <div className="col-span-2 sm:col-span-1 group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-3.5 sm:p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
           <div className="flex items-center justify-between text-slate-400 text-xs">
             <div className="flex items-center gap-1.5">
-              <span className="font-medium text-slate-200">Stock Holdings Value</span>
+              <span className="font-semibold text-slate-200">Stock Holdings Value</span>
               <div
                 className="group/tooltip relative cursor-help"
                 title="Current live market value of your active stock positions. Excludes uninvested cash."
@@ -167,10 +167,10 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
               <Wallet className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-extrabold tracking-tight text-white font-mono">
+          <div className="mt-1.5 text-2xl font-extrabold tracking-tight text-white font-mono">
             {formatCurrency(summary.totalValue)}
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs pt-1 border-t border-slate-800/50">
+          <div className="mt-2 flex items-center justify-between text-xs pt-1.5 border-t border-slate-800/50">
             <div className="flex items-center gap-1 text-slate-400">
               <span>Day:</span>
               <span
@@ -195,129 +195,97 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
         </div>
 
         {/* Card 2: Simple Return (ROI) */}
-        <div className="group relative rounded-2xl border border-emerald-500/30 bg-gradient-to-b from-emerald-950/20 to-slate-900/90 p-4 sm:p-5 shadow-lg shadow-emerald-500/5 hover:border-emerald-500/50 transition">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <div className="flex items-center gap-1">
-              <span className="font-medium text-emerald-300">Simple Return (ROI)</span>
-              <div
-                className="group/tooltip relative cursor-help"
-                title="Simple absolute return on invested capital: (Total Portfolio Value + Dividends + Realized - Net Invested) / Net Invested"
-              >
-                <Info className="h-3.5 w-3.5 text-slate-400" />
-              </div>
-            </div>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
-              <Percent className="h-4 w-4" />
+        <div className="col-span-1 group relative rounded-2xl border border-emerald-500/30 bg-gradient-to-b from-emerald-950/20 to-slate-900/90 p-2.5 sm:p-5 shadow-lg shadow-emerald-500/5 hover:border-emerald-500/50 transition">
+          <div className="flex items-center justify-between text-slate-400 text-[11px] sm:text-xs">
+            <span className="font-semibold text-emerald-300 truncate">Simple Return</span>
+            <div className="flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400 flex-shrink-0">
+              <Percent className="h-3.5 w-3.5" />
             </div>
           </div>
           <div
-            className={`mt-2 text-2xl font-extrabold tracking-tight font-mono ${
+            className={`mt-1.5 text-lg sm:text-2xl font-extrabold tracking-tight font-mono ${
               isSimplePositive ? "text-emerald-400" : "text-rose-400"
             }`}
           >
             {formatPercent(simpleReturn)}
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
-            <span>Total Gain:</span>
+          <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-400 truncate">
+            <span>Gain:</span>
             <span
               className={`font-mono font-semibold ${
                 summary.totalReturnAmount >= 0 ? "text-emerald-400" : "text-rose-400"
               }`}
             >
-              {formatCurrency(summary.totalReturnAmount, { showPlusSign: true })}
+              {formatCurrency(summary.totalReturnAmount, { showPlusSign: true, compact: true })}
             </span>
           </div>
         </div>
 
         {/* Card 3: Time-Weighted Return (TWR) */}
-        <div className="group relative rounded-2xl border border-blue-500/30 bg-gradient-to-b from-blue-950/30 to-slate-900/90 p-4 sm:p-5 shadow-lg shadow-blue-500/5 hover:border-blue-500/50 transition">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <div className="flex items-center gap-1">
-              <span className="font-medium text-blue-300">Time-Weighted (TWR)</span>
-              <div
-                className="group/tooltip relative cursor-help"
-                title="TWR eliminates the distorting effect of cash deposits & withdrawals to measure true investment skill"
-              >
-                <Info className="h-3.5 w-3.5 text-slate-400" />
-              </div>
-            </div>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/20 text-blue-400">
-              <TrendingUp className="h-4 w-4" />
+        <div className="col-span-1 group relative rounded-2xl border border-blue-500/30 bg-gradient-to-b from-blue-950/30 to-slate-900/90 p-2.5 sm:p-5 shadow-lg shadow-blue-500/5 hover:border-blue-500/50 transition">
+          <div className="flex items-center justify-between text-slate-400 text-[11px] sm:text-xs">
+            <span className="font-semibold text-blue-300 truncate">TWR Return</span>
+            <div className="flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-lg bg-blue-500/20 text-blue-400 flex-shrink-0">
+              <TrendingUp className="h-3.5 w-3.5" />
             </div>
           </div>
           <div
-            className={`mt-2 text-2xl font-extrabold tracking-tight font-mono ${
+            className={`mt-1.5 text-lg sm:text-2xl font-extrabold tracking-tight font-mono ${
               isTwrPositive ? "text-emerald-400" : "text-rose-400"
             }`}
           >
             {formatPercent(summary.twrPercent)}
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
-            <span>Annualized (CAGR):</span>
+          <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-400 truncate">
+            <span>CAGR:</span>
             <span className="font-mono font-semibold text-slate-200">
-              {formatPercent(summary.annualizedTwrPercent)} / yr
+              {formatPercent(summary.annualizedTwrPercent)}
             </span>
           </div>
         </div>
 
         {/* Card 4: Money-Weighted Return (XIRR) */}
-        <div className="group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-4 sm:p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <div className="flex items-center gap-1">
-              <span className="font-medium">Money-Weighted (XIRR)</span>
-              <div
-                className="group/tooltip relative cursor-help"
-                title="XIRR measures actual personal dollar performance taking into account the exact timing and size of every deposit"
-              >
-                <Info className="h-3.5 w-3.5 text-slate-400" />
-              </div>
-            </div>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400">
-              <Zap className="h-4 w-4" />
+        <div className="col-span-1 group relative rounded-2xl border border-purple-500/30 bg-gradient-to-b from-slate-900 to-slate-900/90 p-2.5 sm:p-5 shadow-lg shadow-black/20 hover:border-purple-500/50 transition">
+          <div className="flex items-center justify-between text-slate-400 text-[11px] sm:text-xs">
+            <span className="font-semibold text-purple-300 truncate">XIRR Return</span>
+            <div className="flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400 flex-shrink-0">
+              <Zap className="h-3.5 w-3.5" />
             </div>
           </div>
           <div
-            className={`mt-2 text-2xl font-extrabold tracking-tight font-mono ${
+            className={`mt-1.5 text-lg sm:text-2xl font-extrabold tracking-tight font-mono ${
               isXirrPositive ? "text-emerald-400" : "text-rose-400"
             }`}
           >
             {formatPercent(summary.xirrPercent)}
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
-            <span>Net Invested:</span>
+          <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-400 truncate">
+            <span>Invested:</span>
             <span className="font-mono font-semibold text-slate-200">
-              {formatCurrency(netInvested)}
+              {formatCurrency(netInvested, { compact: true })}
             </span>
           </div>
         </div>
 
         {/* Card 5: Unrealized Gains & Dividends */}
-        <div className="group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-4 sm:p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span className="font-medium">Unrealized Capital Gain</span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
-              <Award className="h-4 w-4" />
+        <div className="col-span-1 group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-2.5 sm:p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
+          <div className="flex items-center justify-between text-slate-400 text-[11px] sm:text-xs">
+            <span className="font-semibold truncate">Capital Gain</span>
+            <div className="flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 flex-shrink-0">
+              <Award className="h-3.5 w-3.5" />
             </div>
           </div>
           <div
-            className={`mt-2 text-2xl font-extrabold tracking-tight font-mono ${
+            className={`mt-1.5 text-lg sm:text-2xl font-extrabold tracking-tight font-mono ${
               isUnrealizedPositive ? "text-emerald-400" : "text-rose-400"
             }`}
           >
-            {formatCurrency(summary.unrealizedPnL, { showPlusSign: true })}
+            {formatCurrency(summary.unrealizedPnL, { showPlusSign: true, compact: true })}
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
-            <span>
-              Dividends:{" "}
-              <span className="font-mono font-semibold text-emerald-400">
-                +{formatCurrency(summary.totalDividends)}
-              </span>
-            </span>
-            <span title="Total brokerage trading commissions, exchange fees, and taxes deducted">
-              Commissions:{" "}
-              <span className="font-mono font-semibold text-amber-400">
-                -{formatCurrency(summary.totalFees)}
-              </span>
+          <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-400 truncate">
+            <span>Div:</span>
+            <span className="font-mono font-semibold text-emerald-400">
+              +{formatCurrency(summary.totalDividends, { compact: true })}
             </span>
           </div>
         </div>

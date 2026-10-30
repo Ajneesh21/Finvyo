@@ -162,7 +162,7 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
   }
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-3 sm:p-5 shadow-xl shadow-black/20 space-y-4">
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-2.5 sm:p-5 shadow-xl shadow-black/20 space-y-3.5">
       {/* Chart Header Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {/* Mode Selector Tabs & Current Metric Badge */}
@@ -325,12 +325,12 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
       )}
 
       {/* Chart Canvas */}
-      <div className="h-[260px] sm:h-[340px] w-full pt-2 min-w-0 relative">
-        <ResponsiveContainer width="100%" height="100%" minHeight={240}>
+      <div className="h-[310px] sm:h-[380px] w-full pt-1 min-w-0 relative">
+        <ResponsiveContainer width="100%" height="100%" minHeight={280}>
           {chartMode === "value" ? (
             <AreaChart
               data={filteredData}
-              margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
+              margin={{ top: 10, right: 2, left: -20, bottom: 0 }}
             >
               <defs>
                 <linearGradient id="valGrad" x1="0" y1="0" x2="0" y2="1">
@@ -355,7 +355,7 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
                 stroke="#64748b"
                 tickFormatter={(v) => formatCurrency(v, { compact: true })}
                 tick={{ fontSize: 10 }}
-                width={42}
+                width={38}
                 domain={["dataMin - 500", "auto"]}
               />
               <Tooltip
@@ -417,7 +417,7 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
           ) : (
             <LineChart
               data={filteredData}
-              margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
+              margin={{ top: 10, right: 2, left: -20, bottom: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
               <XAxis
@@ -432,7 +432,7 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
                 stroke="#64748b"
                 tickFormatter={(v) => `${v}%`}
                 tick={{ fontSize: 10 }}
-                width={40}
+                width={36}
               />
               <Tooltip
                 content={({ active, payload, label }) => {
