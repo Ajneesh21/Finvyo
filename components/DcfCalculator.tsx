@@ -466,16 +466,16 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
           {/* Main Interactive Controls Panel */}
           <form
             onSubmit={handleCalculateAndSave}
-            className="rounded-2xl border border-blue-500/30 bg-slate-900/90 p-5 shadow-2xl space-y-4"
+            className="rounded-2xl border border-blue-500/30 bg-slate-900/90 p-3.5 sm:p-5 shadow-2xl space-y-4"
           >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-slate-800 pb-3">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                 <span className="text-xs font-mono font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
                   {financialData.symbol}
                 </span>
                 <span className="text-sm font-bold text-white">{financialData.companyName}</span>
                 <span className="text-xs text-slate-400 font-mono">
-                  (Live Market Price: <strong>${financialData.currentPrice}</strong>)
+                  (Live Price: <strong>${financialData.currentPrice}</strong>)
                 </span>
               </div>
 
@@ -552,15 +552,177 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
 
             {/* Scenario Assumptions Matrix (Bear, Base, Bull) */}
             <div className="rounded-xl border border-slate-800 bg-slate-950/60 overflow-hidden">
-              <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs">
+              <div className="px-3.5 sm:px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs">
                 <span className="font-semibold text-white flex items-center gap-1.5">
                   <Sliders className="h-3.5 w-3.5 text-indigo-400" />
-                  Scenario Inputs: Expected Annual EPS Growth (%) &amp; Exit P/E Multiples (x)
+                  Scenario Inputs: Expected EPS Growth &amp; Exit P/E
                 </span>
-                <span className="text-[11px] text-slate-400">Enter your estimates below</span>
+                <span className="text-[11px] text-slate-400">Enter your custom estimates below</span>
               </div>
 
-              <div className="overflow-x-auto">
+              {/* Mobile Card Stack (< sm) */}
+              <div className="block sm:hidden p-3 space-y-3">
+                {/* 1. BEAR CASE */}
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                      <ShieldAlert className="h-3.5 w-3.5" /> Bear Case (Conservative)
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">Low Forecast</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-slate-400 font-medium block">
+                        Annual EPS Growth
+                      </label>
+                      <div className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5">
+                        <input
+                          type="number"
+                          step="any"
+                          value={draftScenarios.BEAR.epsGrowth}
+                          onChange={(e) =>
+                            setDraftScenarios((prev) => ({
+                              ...prev,
+                              BEAR: { ...prev.BEAR, epsGrowth: e.target.value },
+                            }))
+                          }
+                          className="w-full bg-transparent font-mono text-sm text-white font-bold outline-none"
+                        />
+                        <span className="text-xs font-mono text-slate-400">%</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-slate-400 font-medium block">
+                        Exit P/E Multiple
+                      </label>
+                      <div className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5">
+                        <input
+                          type="number"
+                          step="any"
+                          value={draftScenarios.BEAR.exitPE}
+                          onChange={(e) =>
+                            setDraftScenarios((prev) => ({
+                              ...prev,
+                              BEAR: { ...prev.BEAR, exitPE: e.target.value },
+                            }))
+                          }
+                          className="w-full bg-transparent font-mono text-sm text-white font-bold outline-none"
+                        />
+                        <span className="text-xs font-mono text-slate-400">x</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. BASE CASE (HERO) */}
+                <div className="p-3 bg-blue-600/10 rounded-xl border-2 border-blue-500/50 space-y-2.5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
+                      <Target className="h-3.5 w-3.5" /> Base Case (Target / Realistic)
+                    </span>
+                    <span className="rounded bg-blue-500/20 px-1.5 py-0.5 text-[9px] font-bold text-blue-300 uppercase">
+                      Target
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-blue-300 font-medium block">
+                        Annual EPS Growth
+                      </label>
+                      <div className="flex items-center gap-1.5 rounded-lg border border-blue-500 bg-slate-900 px-2.5 py-1.5">
+                        <input
+                          type="number"
+                          step="any"
+                          value={draftScenarios.BASE.epsGrowth}
+                          onChange={(e) =>
+                            setDraftScenarios((prev) => ({
+                              ...prev,
+                              BASE: { ...prev.BASE, epsGrowth: e.target.value },
+                            }))
+                          }
+                          className="w-full bg-transparent font-mono text-sm text-white font-bold outline-none"
+                        />
+                        <span className="text-xs font-mono text-blue-300 font-bold">%</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-blue-300 font-medium block">
+                        Exit P/E Multiple
+                      </label>
+                      <div className="flex items-center gap-1.5 rounded-lg border border-blue-500 bg-slate-900 px-2.5 py-1.5">
+                        <input
+                          type="number"
+                          step="any"
+                          value={draftScenarios.BASE.exitPE}
+                          onChange={(e) =>
+                            setDraftScenarios((prev) => ({
+                              ...prev,
+                              BASE: { ...prev.BASE, exitPE: e.target.value },
+                            }))
+                          }
+                          className="w-full bg-transparent font-mono text-sm text-white font-bold outline-none"
+                        />
+                        <span className="text-xs font-mono text-blue-300 font-bold">x</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. BULL CASE */}
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                      <TrendingUp className="h-3.5 w-3.5" /> Bull Case (Optimistic)
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">High Forecast</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-slate-400 font-medium block">
+                        Annual EPS Growth
+                      </label>
+                      <div className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5">
+                        <input
+                          type="number"
+                          step="any"
+                          value={draftScenarios.BULL.epsGrowth}
+                          onChange={(e) =>
+                            setDraftScenarios((prev) => ({
+                              ...prev,
+                              BULL: { ...prev.BULL, epsGrowth: e.target.value },
+                            }))
+                          }
+                          className="w-full bg-transparent font-mono text-sm text-white font-bold outline-none"
+                        />
+                        <span className="text-xs font-mono text-slate-400">%</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-slate-400 font-medium block">
+                        Exit P/E Multiple
+                      </label>
+                      <div className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5">
+                        <input
+                          type="number"
+                          step="any"
+                          value={draftScenarios.BULL.exitPE}
+                          onChange={(e) =>
+                            setDraftScenarios((prev) => ({
+                              ...prev,
+                              BULL: { ...prev.BULL, exitPE: e.target.value },
+                            }))
+                          }
+                          className="w-full bg-transparent font-mono text-sm text-white font-bold outline-none"
+                        />
+                        <span className="text-xs font-mono text-slate-400">x</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Desktop Table View (>= sm) */}
+              <div className="hidden sm:block overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-slate-800 bg-slate-900/80 text-slate-400">
                     <tr>
@@ -701,7 +863,7 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
             <div className="flex justify-end pt-1">
               <button
                 type="submit"
-                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 hover:from-blue-500 hover:to-indigo-500 transition ring-1 ring-white/10 cursor-pointer"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-3 sm:py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 hover:from-blue-500 hover:to-indigo-500 transition ring-1 ring-white/10 active:scale-95 cursor-pointer"
               >
                 <Calculator className="h-4 w-4" />
                 <span>Calculate &amp; Save Valuation</span>
@@ -710,9 +872,9 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
           </form>
 
           {/* Time Horizon Pills */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 border-b border-slate-800 pb-3">
+            <div className="flex items-center justify-between sm:justify-start gap-2">
+              <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5 flex-shrink-0">
                 <Clock className="h-3.5 w-3.5 text-blue-400" /> Focus Horizon:
               </span>
               <div className="flex items-center rounded-xl bg-slate-900 border border-slate-800 p-1">
@@ -720,7 +882,7 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
                   <button
                     key={h}
                     onClick={() => setSelectedHorizon(h)}
-                    className={`rounded-lg px-4 py-1.5 text-xs font-bold font-mono transition ${
+                    className={`rounded-lg px-3 sm:px-4 py-1.5 text-xs font-bold font-mono transition ${
                       selectedHorizon === h
                         ? "bg-blue-600 text-white shadow-md shadow-blue-600/20"
                         : "text-slate-400 hover:text-slate-200"
@@ -740,7 +902,7 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
           {/* Top 3 Scenario Output Cards (With Expected Annual Return prominently shown) */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {/* 1. BEAR CASE */}
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-5 shadow-lg space-y-4 hover:border-slate-700 transition">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-4 sm:p-5 shadow-lg space-y-3.5 hover:border-slate-700 transition">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
                   <ShieldAlert className="h-4 w-4" /> Bear Case ({selectedHorizon}Y)
@@ -753,7 +915,7 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
               <div className="space-y-1">
                 <span className="text-[11px] text-slate-400 block">Expected Annual Return (% CAGR):</span>
                 <div
-                  className={`text-3xl font-extrabold font-mono flex items-center gap-1 ${
+                  className={`text-2xl sm:text-3xl font-extrabold font-mono flex items-center gap-1 ${
                     valuation.scenarios.BEAR.horizons[selectedHorizon].expectedCagr >= 0
                       ? "text-emerald-400"
                       : "text-rose-400"
@@ -791,7 +953,7 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
             </div>
 
             {/* 2. BASE CASE (HERO) */}
-            <div className="relative overflow-hidden rounded-2xl border-2 border-blue-500 bg-gradient-to-b from-blue-950/40 to-slate-900 p-5 shadow-2xl shadow-blue-500/10 space-y-4">
+            <div className="relative overflow-hidden rounded-2xl border-2 border-blue-500 bg-gradient-to-b from-blue-950/40 to-slate-900 p-4 sm:p-5 shadow-2xl shadow-blue-500/10 space-y-3.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
                   <Target className="h-4 w-4" /> Base Case Target ({selectedHorizon}Y)
@@ -804,16 +966,16 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
               <div className="space-y-1">
                 <span className="text-[11px] text-blue-200 block">Expected Annual Return (% CAGR):</span>
                 <div
-                  className={`text-4xl font-black font-mono flex items-center gap-1 ${
+                  className={`text-3xl sm:text-4xl font-black font-mono flex items-center gap-1 ${
                     valuation.scenarios.BASE.horizons[selectedHorizon].expectedCagr >= 0
                       ? "text-emerald-400"
                       : "text-rose-400"
                   }`}
                 >
                   {valuation.scenarios.BASE.horizons[selectedHorizon].expectedCagr >= 0 ? (
-                    <ArrowUpRight className="h-8 w-8" />
+                    <ArrowUpRight className="h-7 w-7 sm:h-8 sm:w-8" />
                   ) : (
-                    <ArrowDownRight className="h-8 w-8" />
+                    <ArrowDownRight className="h-7 w-7 sm:h-8 sm:w-8" />
                   )}
                   {formatPercent(valuation.scenarios.BASE.horizons[selectedHorizon].expectedCagr)} / yr
                 </div>
@@ -842,7 +1004,7 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
             </div>
 
             {/* 3. BULL CASE */}
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-5 shadow-lg space-y-4 hover:border-slate-700 transition">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-4 sm:p-5 shadow-lg space-y-3.5 hover:border-slate-700 transition">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
                   <TrendingUp className="h-4 w-4" /> Bull Case ({selectedHorizon}Y)
@@ -895,18 +1057,23 @@ export const DcfCalculator: React.FC<DcfCalculatorProps> = ({
 
           {/* Master Comparison Table across 3, 5 & 10 Years */}
           <div className="rounded-2xl border border-slate-800 bg-slate-900/90 overflow-hidden shadow-xl">
-            <div className="border-b border-slate-800 px-5 py-3.5 flex items-center justify-between bg-slate-950/60">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Layers className="h-4 w-4 text-blue-400" />
-                Predicted Final Stock Prices &amp; Expected Annual Returns (3Y, 5Y &amp; 10Y)
-              </h3>
+            <div className="border-b border-slate-800 px-3.5 sm:px-5 py-3 sm:py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 bg-slate-950/60">
+              <div className="flex items-center justify-between w-full sm:w-auto">
+                <h3 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-blue-400" />
+                  <span>Predicted Final Stock Prices &amp; Expected Returns</span>
+                </h3>
+                <span className="sm:hidden text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded font-mono border border-blue-500/20">
+                  Scroll ↔
+                </span>
+              </div>
               <span className="text-xs font-mono text-slate-400">
                 Entry Price: <strong className="text-white">${valuation.purchasePrice}</strong>
               </span>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto scrollbar-thin">
+              <table className="w-full text-left text-xs min-w-[680px]">
                 <thead className="border-b border-slate-800 bg-slate-950 text-slate-400 font-semibold">
                   <tr>
                     <th className="px-4 py-3">Scenario</th>
