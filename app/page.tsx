@@ -72,6 +72,7 @@ type TabId =
 
 export default function Home() {
   const {
+    currentUser,
     portfolios,
     currentPortfolioId,
     portfolioName,
@@ -117,6 +118,7 @@ export default function Home() {
     <div className="min-h-screen min-h-[100dvh] bg-[#0b0f19] text-slate-100 flex flex-col">
       {/* Top Navigation Bar with Portfolio Switcher & Mobile Drawer */}
       <Navbar
+        currentUser={currentUser}
         onOpenUpload={() => setIsUploadOpen(true)}
         onLoadDemo={handleLoadDemo}
         onRefreshPrices={handleRefreshPrices}

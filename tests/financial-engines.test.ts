@@ -838,13 +838,20 @@ describe("Server-Side Pagination API (/api/portfolios)", () => {
         twrSubPeriods,
         realizedTrades,
       } as any,
-    });
+    }, "test-user-id-1");
   });
+
+  const authHeaders = {
+    "x-user-id": "test-user-id-1",
+    "x-user-name": "tester",
+    "x-user-folder": "tester_12345678",
+  };
 
   it("should paginate transactions on-demand from the server", async () => {
     // Request page 1 with pageSize=10
     const req1 = new NextRequest(
-      `http://localhost:3000/api/portfolios?id=${testPortfolioId}&resource=transactions&page=1&pageSize=10`
+      `http://localhost:3000/api/portfolios?id=${testPortfolioId}&resource=transactions&page=1&pageSize=10`,
+      { headers: authHeaders }
     );
     const res1 = await getPortfoliosApi(req1);
     assert.equal(res1.status, 200);
@@ -857,7 +864,8 @@ describe("Server-Side Pagination API (/api/portfolios)", () => {
 
     // Request page 4 (last page) with pageSize=10
     const req4 = new NextRequest(
-      `http://localhost:3000/api/portfolios?id=${testPortfolioId}&resource=transactions&page=4&pageSize=10`
+      `http://localhost:3000/api/portfolios?id=${testPortfolioId}&resource=transactions&page=4&pageSize=10`,
+      { headers: authHeaders }
     );
     const res4 = await getPortfoliosApi(req4);
     const data4 = await res4.json();
@@ -867,7 +875,8 @@ describe("Server-Side Pagination API (/api/portfolios)", () => {
 
   it("should paginate and filter TWR sub-periods from the server", async () => {
     const req = new NextRequest(
-      `http://localhost:3000/api/portfolios?id=${testPortfolioId}&resource=twr&page=2&pageSize=10`
+      `http://localhost:3000/api/portfolios?id=${testPortfolioId}&resource=twr&page=2&pageSize=10`,
+      { headers: authHeaders }
     );
     const res = await getPortfoliosApi(req);
     assert.equal(res.status, 200);
@@ -882,7 +891,8 @@ describe("Server-Side Pagination API (/api/portfolios)", () => {
   it("should paginate and filter Realized Trades by tax category from the server", async () => {
     // Filter SHORT_TERM trades (11 total)
     const req = new NextRequest(
-      `http://localhost:3000/api/portfolios?id=${testPortfolioId}&resource=trades&page=1&pageSize=5&taxType=SHORT_TERM`
+      `http://localhost:3000/api/portfolios?id=${testPortfolioId}&resource=trades&page=1&pageSize=5&taxType=SHORT_TERM`,
+      { headers: authHeaders }
     );
     const res = await getPortfoliosApi(req);
     assert.equal(res.status, 200);

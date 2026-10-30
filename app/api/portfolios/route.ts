@@ -8,11 +8,17 @@ import {
 } from "@/lib/storage";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limiter";
 import { validateTransactionsList } from "@/lib/validation";
+import { getAuthUserFromRequest } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
+    const user = await getAuthUserFromRequest(req);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const ip = getClientIp(req);
     const rateCheck = await checkRateLimit(`portfolios:get:${ip}`, {
       maxRequests: 60,
@@ -37,7 +43,7 @@ export async function GET(req: NextRequest) {
 
     // If requesting a specific portfolio's paginated resources
     if (id && pageStr) {
-      const portfolio = await getPortfolioById(id);
+      const portfolio = await getPortfolioById(id, user.userId);
       if (!portfolio) {
         return NextResponse.json({ error: "Portfolio not found" }, { status: 404 });
       }
@@ -127,7 +133,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const list = await getAllPortfolios();
+    const list = await getAllPortfolios(user.userId);
     return NextResponse.json({ portfolios: list });
   } catch (err: unknown) {
     console.error("[Portfolios API GET] Error:", err);
@@ -140,6 +146,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await getAuthUserFromRequest(req);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     // 1. Rate Limiting
     const ip = getClientIp(req);
     const rateCheck = await checkRateLimit(`portfolios:post:${ip}`, {
@@ -173,23 +184,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const cleanName = typeof body.name === "string" && body.name.trim()
-      ? body.name.trim().substring(0, 100)
-      : "My Portfolio";
+    const cleanName =
+      typeof body.name === "string" && body.name.trim()
+        ? body.name.trim().substring(0, 100)
+        : "My Portfolio";
 
     const portfolio: StoredPortfolio = {
-      id: typeof body.id === "string" && body.id.trim() ? body.id.trim() : `port-${Date.now()}`,
+      id:
+        typeof body.id === "string" && body.id.trim()
+          ? body.id.trim()
+          : `port-${Date.now()}`,
       name: cleanName,
       createdAt: body.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       transactions: validation.validatedList,
-      sourceFileName: typeof body.sourceFileName === "string" ? body.sourceFileName.substring(0, 150) : undefined,
+      sourceFileName:
+        typeof body.sourceFileName === "string"
+          ? body.sourceFileName.substring(0, 150)
+          : undefined,
       isDefault: body.isDefault !== undefined ? Boolean(body.isDefault) : true,
       lastComputedSummary: body.lastComputedSummary || undefined,
       lastCalculatedAt: body.lastCalculatedAt || undefined,
     };
 
-    const saved = await savePortfolio(portfolio);
+    const saved = await savePortfolio(portfolio, user.userId);
     return NextResponse.json({ portfolio: saved });
   } catch (err: unknown) {
     console.error("[Portfolios API POST] Error:", err);
@@ -202,6 +220,11 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const user = await getAuthUserFromRequest(req);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const ip = getClientIp(req);
     const rateCheck = await checkRateLimit(`portfolios:patch:${ip}`, {
       maxRequests: 30,
@@ -224,7 +247,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const existing = await getPortfolioById(id);
+    const existing = await getPortfolioById(id, user.userId);
     if (!existing) {
       return NextResponse.json(
         { error: "Portfolio not found" },
@@ -233,13 +256,14 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (name !== undefined) {
-      existing.name = typeof name === "string" ? name.trim().substring(0, 100) : existing.name;
+      existing.name =
+        typeof name === "string" ? name.trim().substring(0, 100) : existing.name;
     }
     if (isDefault !== undefined) {
       existing.isDefault = Boolean(isDefault);
     }
 
-    const saved = await savePortfolio(existing);
+    const saved = await savePortfolio(existing, user.userId);
     return NextResponse.json({ portfolio: saved });
   } catch (err: unknown) {
     console.error("[Portfolios API PATCH] Error:", err);
@@ -252,6 +276,11 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const user = await getAuthUserFromRequest(req);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const ip = getClientIp(req);
     const rateCheck = await checkRateLimit(`portfolios:delete:${ip}`, {
       maxRequests: 30,
@@ -274,7 +303,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const success = await deletePortfolio(id);
+    const success = await deletePortfolio(id, user.userId);
     return NextResponse.json({ success, id });
   } catch (err: unknown) {
     console.error("[Portfolios API DELETE] Error:", err);

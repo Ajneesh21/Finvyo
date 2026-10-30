@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { Transaction, PortfolioSummary } from "./types";
 import { getCachedData, setCachedData, deleteCachedData } from "./redis";
+import { query } from "./db";
 
 export interface StoredPortfolio {
   id: string;
@@ -38,235 +39,212 @@ async function withLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function safeWriteFileSync(filePath: string, data: string): void {
-  const dir = path.dirname(filePath);
-  try {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-  } catch (err) {
-    console.error(`[Storage] Failed to ensure directory ${dir}:`, err);
-  }
+/**
+ * Fetch all portfolios belonging to a specific user.
+ * 1. Redis Cache -> 2. PostgreSQL -> 3. Fallback to Disk/Memory
+ */
+export async function getAllPortfolios(userId: string = "default-user"): Promise<StoredPortfolio[]> {
+  if (!userId) return [];
 
-  // Attempt atomic write first
-  try {
-    const tempPath = path.join(
-      dir,
-      `.${path.basename(filePath)}.tmp.${Date.now()}.${Math.random().toString(36).slice(2)}`
-    );
-    fs.writeFileSync(tempPath, data, "utf-8");
-    fs.renameSync(tempPath, filePath);
-    return;
-  } catch (atomicErr) {
-    // Atomic rename can fail across Docker mount boundaries or permission quirks;
-    // fall back to direct write
-    try {
-      fs.writeFileSync(filePath, data, "utf-8");
-      return;
-    } catch (directErr) {
-      console.error(`[Storage] Direct write to ${filePath} failed:`, directErr);
-      throw directErr;
-    }
-  }
-}
+  const redisKey = `portfolios:user:${userId}`;
 
-function ensureStorage(): void {
+  // 1. Check Redis cache first
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(STORAGE_FILE)) {
-      safeWriteFileSync(STORAGE_FILE, JSON.stringify({}, null, 2));
-    }
-  } catch (err) {
-    console.error("[Storage] Failed to ensure storage directory/file:", err);
-  }
-}
-
-export async function getAllPortfolios(): Promise<StoredPortfolio[]> {
-  ensureStorage();
-
-  // 1. Check Redis cache first (fast & reliable across container restarts)
-  try {
-    const cached = await getCachedData<StoredPortfolio[]>("portfolios:all");
+    const cached = await getCachedData<StoredPortfolio[]>(redisKey);
     if (cached && Array.isArray(cached) && cached.length > 0) {
       return cached;
     }
-  } catch (err) {
-    console.error("[Storage] Error checking Redis in getAllPortfolios:", err);
+  } catch {}
+
+  // 2. Fetch from PostgreSQL
+  try {
+    const res = await query(
+      `SELECT * FROM portfolios WHERE user_id = $1 ORDER BY created_at DESC`,
+      [userId]
+    );
+
+    if (res.rows.length > 0) {
+      const list: StoredPortfolio[] = res.rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+        transactions: Array.isArray(row.transactions) ? row.transactions : [],
+        sourceFileName: row.source_file_name || undefined,
+        isDefault: Boolean(row.is_default),
+        lastComputedSummary: row.last_computed_summary || undefined,
+        lastCalculatedAt: row.last_calculated_at
+          ? new Date(row.last_calculated_at).toISOString()
+          : undefined,
+      }));
+
+      // Cache in Redis
+      await setCachedData(redisKey, list, REDIS_PORTFOLIO_TTL);
+      return list;
+    }
+  } catch (dbErr) {
+    console.warn("[Storage] Database query error in getAllPortfolios:", dbErr);
   }
 
-  // 2. Read from disk if Redis has no data
+  // 3. Fallback: Check local disk storage (for legacy or offline single-tenant data)
   try {
     if (fs.existsSync(STORAGE_FILE)) {
       const raw = fs.readFileSync(STORAGE_FILE, "utf-8");
       const map = JSON.parse(raw) as Record<string, StoredPortfolio>;
       const list = Object.values(map);
       if (list.length > 0) {
-        // Re-populate Redis with 30-day TTL
-        await setCachedData("portfolios:all", list, REDIS_PORTFOLIO_TTL);
         return list;
       }
     }
-  } catch (err) {
-    console.error("[Storage] Error reading portfolios from disk:", err);
-  }
-
-  // 3. Fallback: if Redis had an empty array or disk was empty, return whatever Redis had
-  try {
-    const cached = await getCachedData<StoredPortfolio[]>("portfolios:all");
-    if (cached && Array.isArray(cached)) return cached;
   } catch {}
 
   return [];
 }
 
 export async function getPortfolioById(
-  id: string
+  id: string,
+  userId: string = "default-user"
 ): Promise<StoredPortfolio | null> {
-  const all = await getAllPortfolios();
+  const all = await getAllPortfolios(userId);
   return all.find((p) => p.id === id) || null;
 }
 
+/**
+ * Saves or updates a portfolio for a specific user in PostgreSQL and Redis.
+ */
 export async function savePortfolio(
-  portfolio: StoredPortfolio
+  portfolio: StoredPortfolio,
+  userId: string = "default-user"
 ): Promise<StoredPortfolio> {
+  if (!userId) {
+    userId = "default-user";
+  }
+
   return withLock(async () => {
-    ensureStorage();
+    const redisKey = `portfolios:user:${userId}`;
 
-    let map: Record<string, StoredPortfolio> = {};
-
-    // 1. Read existing from disk
-    try {
-      if (fs.existsSync(STORAGE_FILE)) {
-        const raw = fs.readFileSync(STORAGE_FILE, "utf-8");
-        map = JSON.parse(raw);
-      }
-    } catch (err) {
-      console.error("[Storage] Error reading portfolios from disk before save:", err);
-    }
-
-    // 2. If disk had nothing, check Redis backup as secondary source of truth
-    if (Object.keys(map).length === 0) {
+    // If this portfolio is marked default, unset default on other portfolios
+    if (portfolio.isDefault) {
       try {
-        const cached = await getCachedData<StoredPortfolio[]>("portfolios:all");
-        if (cached && Array.isArray(cached) && cached.length > 0) {
-          for (const p of cached) {
-            map[p.id] = p;
-          }
-        }
+        await query(
+          `UPDATE portfolios SET is_default = false WHERE user_id = $1 AND id != $2`,
+          [userId, portfolio.id]
+        );
       } catch {}
     }
 
-    // If setting isDefault to true, ensure others are set to false
-    if (portfolio.isDefault) {
-      for (const k of Object.keys(map)) {
-        if (k !== portfolio.id) {
-          map[k].isDefault = false;
-        }
-      }
-    }
-
-    map[portfolio.id] = {
+    const now = new Date().toISOString();
+    const updatedPortfolio: StoredPortfolio = {
       ...portfolio,
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
     };
 
-    const list = Object.values(map);
-
-    // 3. PERSIST IN REDIS FIRST (30-day retention)
+    // 1. Save to PostgreSQL
     try {
-      await setCachedData("portfolios:all", list, REDIS_PORTFOLIO_TTL);
+      await query(
+        `INSERT INTO portfolios (
+          id, user_id, name, is_default, source_file_name,
+          transactions, last_computed_summary, last_calculated_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          is_default = EXCLUDED.is_default,
+          source_file_name = COALESCE(EXCLUDED.source_file_name, portfolios.source_file_name),
+          transactions = EXCLUDED.transactions,
+          last_computed_summary = COALESCE(EXCLUDED.last_computed_summary, portfolios.last_computed_summary),
+          last_calculated_at = COALESCE(EXCLUDED.last_calculated_at, portfolios.last_calculated_at),
+          updated_at = EXCLUDED.updated_at;`,
+        [
+          updatedPortfolio.id,
+          userId,
+          updatedPortfolio.name,
+          Boolean(updatedPortfolio.isDefault),
+          updatedPortfolio.sourceFileName || null,
+          JSON.stringify(updatedPortfolio.transactions || []),
+          updatedPortfolio.lastComputedSummary
+            ? JSON.stringify(updatedPortfolio.lastComputedSummary)
+            : null,
+          updatedPortfolio.lastCalculatedAt || null,
+          now,
+        ]
+      );
+    } catch (dbErr) {
+      console.error("[Storage] Database save error in savePortfolio:", dbErr);
+    }
+
+    // 2. Invalidate / Update Redis Cache
+    try {
+      const currentList = await getAllPortfolios(userId);
+      const filtered = currentList.filter((p) => p.id !== updatedPortfolio.id);
+      const newList = [updatedPortfolio, ...filtered];
+      await setCachedData(redisKey, newList, REDIS_PORTFOLIO_TTL);
     } catch (err) {
       console.error("[Storage] Failed to update Redis cache:", err);
     }
 
-    // 4. PERSIST TO DISK
-    try {
-      safeWriteFileSync(STORAGE_FILE, JSON.stringify(map, null, 2));
-    } catch (err) {
-      console.error("[Storage] Error saving portfolio to disk:", err instanceof Error ? err.message : String(err));
-    }
-
-    return portfolio;
+    return updatedPortfolio;
   });
 }
 
-export async function deletePortfolio(id: string): Promise<boolean> {
+/**
+ * Deletes a portfolio belonging to a user from PostgreSQL and Redis.
+ */
+export async function deletePortfolio(
+  id: string,
+  userId: string = "default-user"
+): Promise<boolean> {
+  if (!userId) return false;
+
   return withLock(async () => {
-    ensureStorage();
+    const redisKey = `portfolios:user:${userId}`;
 
-    let map: Record<string, StoredPortfolio> = {};
     try {
-      if (fs.existsSync(STORAGE_FILE)) {
-        const raw = fs.readFileSync(STORAGE_FILE, "utf-8");
-        map = JSON.parse(raw) as Record<string, StoredPortfolio>;
-      }
-    } catch {}
+      const res = await query(
+        `DELETE FROM portfolios WHERE id = $1 AND user_id = $2`,
+        [id, userId]
+      );
 
-    if (Object.keys(map).length === 0) {
-      try {
-        const cached = await getCachedData<StoredPortfolio[]>("portfolios:all");
-        if (cached && Array.isArray(cached)) {
-          for (const p of cached) {
-            map[p.id] = p;
-          }
-        }
-      } catch {}
+      // Invalidate Redis cache
+      const currentList = await getAllPortfolios(userId);
+      const newList = currentList.filter((p) => p.id !== id);
+      await setCachedData(redisKey, newList, REDIS_PORTFOLIO_TTL);
+
+      return (res.rowCount ?? 0) > 0;
+    } catch (err) {
+      console.error("[Storage] Database delete error in deletePortfolio:", err);
+      return false;
     }
-
-    if (map[id]) {
-      delete map[id];
-      const list = Object.values(map);
-      await setCachedData("portfolios:all", list, REDIS_PORTFOLIO_TTL);
-      try {
-        safeWriteFileSync(STORAGE_FILE, JSON.stringify(map, null, 2));
-      } catch (err) {
-        console.error("[Storage] Error saving after deletion to disk:", err);
-      }
-      return true;
-    }
-
-    return false;
   });
 }
 
+/**
+ * Updates computed analytics and summary for a user's portfolio.
+ */
 export async function updatePortfolioSummary(
   id: string,
-  summary: PortfolioSummary
+  summary: PortfolioSummary,
+  userId: string = "default-user"
 ): Promise<void> {
+  if (!userId) return;
+
   return withLock(async () => {
-    ensureStorage();
-    let map: Record<string, StoredPortfolio> = {};
+    const now = new Date().toISOString();
+
     try {
-      if (fs.existsSync(STORAGE_FILE)) {
-        const raw = fs.readFileSync(STORAGE_FILE, "utf-8");
-        map = JSON.parse(raw) as Record<string, StoredPortfolio>;
-      }
-    } catch {}
+      await query(
+        `UPDATE portfolios SET
+          last_computed_summary = $1,
+          last_calculated_at = $2,
+          updated_at = $3
+        WHERE id = $4 AND user_id = $5`,
+        [JSON.stringify(summary), now, now, id, userId]
+      );
 
-    if (Object.keys(map).length === 0) {
-      try {
-        const cached = await getCachedData<StoredPortfolio[]>("portfolios:all");
-        if (cached && Array.isArray(cached)) {
-          for (const p of cached) {
-            map[p.id] = p;
-          }
-        }
-      } catch {}
-    }
-
-    if (map[id]) {
-      map[id].lastComputedSummary = summary;
-      map[id].lastCalculatedAt = new Date().toISOString();
-      const list = Object.values(map);
-      await setCachedData("portfolios:all", list, REDIS_PORTFOLIO_TTL);
-      try {
-        safeWriteFileSync(STORAGE_FILE, JSON.stringify(map, null, 2));
-      } catch (err) {
-        console.error("[Storage] Error updating portfolio summary on disk:", err);
-      }
+      // Invalidate Redis cache
+      const redisKey = `portfolios:user:${userId}`;
+      await deleteCachedData(redisKey);
+    } catch (err) {
+      console.error("[Storage] Error updating portfolio summary:", err);
     }
   });
 }
-

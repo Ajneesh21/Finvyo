@@ -49,6 +49,11 @@ function getLocalFallback(): StoredPortfolio[] {
 }
 
 export function usePortfolio() {
+  const [currentUser, setCurrentUser] = useState<{
+    id: string;
+    username: string;
+    email: string;
+  } | null>(null);
   const [portfolios, setPortfolios] = useState<StoredPortfolio[]>([]);
   const [currentPortfolioId, setCurrentPortfolioId] = useState<string>("");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -120,6 +125,16 @@ export function usePortfolio() {
 
     async function loadInitialData() {
       try {
+        // Fetch current authenticated user
+        fetch("/api/auth")
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.authenticated && data.user) {
+              setCurrentUser(data.user);
+            }
+          })
+          .catch(() => {});
+
         const res = await fetch("/api/portfolios");
         let storedList: StoredPortfolio[] = [];
 
@@ -422,6 +437,7 @@ export function usePortfolio() {
   };
 
   return {
+    currentUser,
     portfolios,
     currentPortfolioId,
     portfolioName,

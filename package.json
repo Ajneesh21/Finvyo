@@ -11,6 +11,7 @@
     "test": "tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
+    "@types/pg": "^8.23.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "ioredis": "^6.0.0",
@@ -18,6 +19,7 @@
     "lucide-react": "^1.34.0",
     "next": "^16.3.3",
     "pdf-parse": "^1.1.1",
+    "pg": "^8.23.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-is": "^19.2.8",

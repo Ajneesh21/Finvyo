@@ -1,121 +1,253 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { signAccessToken, signRefreshToken, verifyToken,
-  ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/auth";
-import { checkRateLimit, getClientIp, resetRateLimit } from "@/lib/rate-limiter";
+import {
+  signAccessToken,
+  signRefreshToken,
+  verifyToken,
+  hashPassword,
+  verifyPassword,
+  generateStorageFolderKey,
+  getAuthUserFromRequest,
+  ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+  AuthUser,
+} from "@/lib/auth";
+import { query } from "@/lib/db";
+import { getUserDirectory } from "@/lib/user-storage";
+import { savePortfolio } from "@/lib/storage";
 
-/**
- * Constant-time string comparison to prevent timing attack leaks.
- */
-function safeTimingCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    // Perform dummy timing safe equal against self to equalize execution time
-    crypto.timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return crypto.timingSafeEqual(bufA, bufB);
-}
-
-// POST /api/auth — Login
+// POST /api/auth — Login or Register
 export async function POST(req: NextRequest) {
-  const ip = getClientIp(req);
-  const rateLimitKey = `auth:login:${ip}`;
+  try {
+    const body = await req.json();
+    const action = body.action || "login";
 
-  // 1. Rate Limiting: Max 5 failed attempts per 15 minutes per IP
-  const rateCheck = await checkRateLimit(rateLimitKey, {
-    maxRequests: 5,
-    windowSeconds: 900,
-  });
+    // ----------------------------------------------------
+    // Action 1: Registration
+    // ----------------------------------------------------
+    if (action === "register") {
+      const username = String(body.username || "").trim();
+      const email = String(body.email || "").trim().toLowerCase();
+      const password = String(body.password || "");
 
-  if (!rateCheck.allowed) {
-    return NextResponse.json(
-      {
-        error: "Too many failed login attempts. Please wait 15 minutes before trying again.",
-        retryAfter: rateCheck.resetInSeconds,
-      },
-      {
-        status: 429,
-        headers: {
-          "Retry-After": String(rateCheck.resetInSeconds),
-        },
+      // Validation
+      if (!username || !/^[a-zA-Z0-9_]{3,30}$/.test(username)) {
+        return NextResponse.json(
+          {
+            error:
+              "Username must be 3-30 characters long and contain only letters, numbers, and underscores.",
+          },
+          { status: 400 }
+        );
       }
-    );
-  }
 
-  const body = await req.json().catch(() => ({}));
-  const password = typeof body?.password === "string" ? body.password : "";
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return NextResponse.json(
+          { error: "Please enter a valid email address." },
+          { status: 400 }
+        );
+      }
 
-  const adminPassword = process.env.ADMIN_PASSWORD;
-  const jwtSecret = process.env.JWT_SECRET;
+      if (!password || password.length < 6) {
+        return NextResponse.json(
+          { error: "Password must be at least 6 characters long." },
+          { status: 400 }
+        );
+      }
 
-  if (!adminPassword || !jwtSecret) {
+      // Check if user already exists
+      const existingUser = await query(
+        `SELECT id, username, email FROM users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($2)`,
+        [username, email]
+      );
+
+      if (existingUser.rows.length > 0) {
+        const match = existingUser.rows[0];
+        if (match.username.toLowerCase() === username.toLowerCase()) {
+          return NextResponse.json(
+            { error: "Username is already taken. Please choose another." },
+            { status: 409 }
+          );
+        }
+        return NextResponse.json(
+          { error: "An account with this email already exists." },
+          { status: 409 }
+        );
+      }
+
+      // Hash password and generate storage folder key
+      const passwordHash = await hashPassword(password);
+      const storageFolderKey = generateStorageFolderKey(username);
+      const userId = crypto.randomUUID();
+
+      // Ensure user directory is created safely on disk
+      getUserDirectory(storageFolderKey);
+
+      // Save user to PostgreSQL
+      await query(
+        `INSERT INTO users (id, username, email, password_hash, storage_folder_key)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, username, email, passwordHash, storageFolderKey]
+      );
+
+      const authUser: AuthUser = {
+        userId,
+        username,
+        email,
+        storageFolderKey,
+        role: "user",
+      };
+
+      // Create an initial default empty portfolio
+      await savePortfolio(
+        {
+          id: `port-${crypto.randomUUID().slice(0, 8)}`,
+          name: "Main Portfolio",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          transactions: [],
+          isDefault: true,
+        },
+        userId
+      ).catch((err) => {
+        console.warn("[Auth API] Note: Failed to create initial default portfolio:", err);
+      });
+
+      // Issue tokens
+      const [accessToken, refreshToken] = await Promise.all([
+        signAccessToken(authUser),
+        signRefreshToken(authUser),
+      ]);
+
+      const response = NextResponse.json({
+        success: true,
+        user: { id: userId, username, email },
+      });
+
+      setAuthCookies(response, accessToken, refreshToken);
+      return response;
+    }
+
+    // ----------------------------------------------------
+    // Action 2: Login
+    // ----------------------------------------------------
+    const identifier = String(body.identifier || body.username || body.email || "").trim();
+    const password = String(body.password || "");
+
+    if (!password) {
+      return NextResponse.json(
+        { error: "Password is required" },
+        { status: 400 }
+      );
+    }
+
+    // Query PostgreSQL for the user
+    let userRow: any = null;
+    if (identifier) {
+      const userRes = await query(
+        `SELECT id, username, email, password_hash, storage_folder_key FROM users
+         WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1)`,
+        [identifier]
+      );
+      if (userRes.rows.length > 0) {
+        userRow = userRes.rows[0];
+      }
+    }
+
+    // If no user found by identifier, check if there's a legacy admin password configured
+    if (!userRow && process.env.ADMIN_PASSWORD && password === process.env.ADMIN_PASSWORD) {
+      // Find or create default admin account in PostgreSQL
+      let adminRes = await query(
+        `SELECT id, username, email, password_hash, storage_folder_key FROM users WHERE username = 'admin'`
+      );
+
+      if (adminRes.rows.length === 0) {
+        const adminId = crypto.randomUUID();
+        const folderKey = generateStorageFolderKey("admin");
+        getUserDirectory(folderKey);
+        const adminHash = await hashPassword(password);
+
+        await query(
+          `INSERT INTO users (id, username, email, password_hash, storage_folder_key)
+           VALUES ($1, 'admin', 'admin@finvyo.local', $2, $3)`,
+          [adminId, adminHash, folderKey]
+        );
+
+        adminRes = await query(
+          `SELECT id, username, email, password_hash, storage_folder_key FROM users WHERE id = $1`,
+          [adminId]
+        );
+      }
+
+      userRow = adminRes.rows[0];
+    }
+
+    if (!userRow) {
+      return NextResponse.json(
+        { error: "Invalid username/email or password" },
+        { status: 401 }
+      );
+    }
+
+    // Verify password
+    const isValid = await verifyPassword(password, userRow.password_hash);
+    if (!isValid) {
+      return NextResponse.json(
+        { error: "Invalid username/email or password" },
+        { status: 401 }
+      );
+    }
+
+    const authUser: AuthUser = {
+      userId: userRow.id,
+      username: userRow.username,
+      email: userRow.email,
+      storageFolderKey: userRow.storage_folder_key,
+      role: userRow.username === "admin" ? "admin" : "user",
+    };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      signAccessToken(authUser),
+      signRefreshToken(authUser),
+    ]);
+
+    const response = NextResponse.json({
+      success: true,
+      user: {
+        id: userRow.id,
+        username: userRow.username,
+        email: userRow.email,
+      },
+    });
+
+    setAuthCookies(response, accessToken, refreshToken);
+    return response;
+  } catch (err: any) {
+    console.error("[Auth API] Error:", err);
     return NextResponse.json(
-      { error: "Server not configured. Set ADMIN_PASSWORD and JWT_SECRET in .env" },
+      { error: "Authentication failed. " + (err.message || "") },
       { status: 500 }
     );
   }
-
-  // 2. Constant-time timing safe comparison
-  if (!password || !safeTimingCompare(password, adminPassword)) {
-    return NextResponse.json({ error: "Invalid password" }, { status: 401 });
-  }
-
-  // 3. Reset rate limit counter on successful authentication
-  await resetRateLimit(rateLimitKey);
-
-  const [accessToken, refreshToken] = await Promise.all([
-    signAccessToken(),
-    signRefreshToken(),
-  ]);
-
-  const response = NextResponse.json({ success: true });
-
-  response.cookies.set(ACCESS_TOKEN_COOKIE, accessToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 60 * 15, // 15 minutes
-    path: "/",
-  });
-
-  response.cookies.set(REFRESH_TOKEN_COOKIE, refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 30, // 30 days
-    path: "/",
-  });
-
-  return response;
 }
 
-// GET /api/auth — Refresh access token using refresh token
+// GET /api/auth — Get current logged-in user profile
 export async function GET(req: NextRequest) {
-  const refreshToken = req.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
-
-  if (!refreshToken) {
-    return NextResponse.json({ error: "No refresh token" }, { status: 401 });
+  const user = await getAuthUserFromRequest(req);
+  if (!user) {
+    return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 
-  const payload = await verifyToken(refreshToken);
-  if (!payload || payload.type !== "refresh") {
-    return NextResponse.json({ error: "Invalid refresh token" }, { status: 401 });
-  }
-
-  const newAccessToken = await signAccessToken();
-  const response = NextResponse.json({ success: true });
-
-  response.cookies.set(ACCESS_TOKEN_COOKIE, newAccessToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 60 * 15,
-    path: "/",
+  return NextResponse.json({
+    authenticated: true,
+    user: {
+      id: user.userId,
+      username: user.username,
+      email: user.email,
+      storageFolderKey: user.storageFolderKey,
+      role: user.role,
+    },
   });
-
-  return response;
 }
 
 // DELETE /api/auth — Logout
@@ -126,3 +258,24 @@ export async function DELETE() {
   return response;
 }
 
+function setAuthCookies(
+  res: NextResponse,
+  accessToken: string,
+  refreshToken: string
+) {
+  res.cookies.set(ACCESS_TOKEN_COOKIE, accessToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 60 * 15, // 15 minutes
+    path: "/",
+  });
+
+  res.cookies.set(REFRESH_TOKEN_COOKIE, refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 30, // 30 days
+    path: "/",
+  });
+}

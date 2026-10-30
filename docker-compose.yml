@@ -17,9 +17,13 @@ services:
       - NODE_ENV=production
       - NODE_OPTIONS=--disable-proto=delete
       - REDIS_URL=redis://:${REDIS_PASSWORD:-finvyo_dev_pass}@redis:6379
+      - DATABASE_URL=postgresql://finvyo:${POSTGRES_PASSWORD:-finvyo_db_pass}@postgres:5432/finvyo
       - PORT=3000
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     volumes:
       - ./data:/app/data
 
@@ -31,9 +35,34 @@ services:
       resources:
         limits:
           memory: 256mb
+    ports:
+      - "127.0.0.1:6379:6379"
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-finvyo_dev_pass}
     volumes:
       - redis-data:/data
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: finvyo-postgres
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512mb
+    environment:
+      - POSTGRES_DB=finvyo
+      - POSTGRES_USER=finvyo
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-finvyo_db_pass}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finvyo -d finvyo"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   redis-data:
+  postgres-data:

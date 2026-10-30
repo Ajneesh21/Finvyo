@@ -11,6 +11,8 @@ import {
 } from "@/lib/pdf-parser";
 import { parseVestedSpreadsheetSheets } from "@/lib/vested-sheet-parser";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limiter";
+import { getAuthUserFromRequest } from "@/lib/auth";
+import { saveUserFile } from "@/lib/user-storage";
 import * as XLSX from "xlsx";
 
 export const dynamic = "force-dynamic";
@@ -97,6 +99,20 @@ export async function POST(req: NextRequest) {
         { error: bufferCheck.error || "Unsafe file content detected." },
         { status: 400 }
       );
+    }
+
+    // Automatically store uploaded statement in user's isolated folder & register in DB
+    const user = await getAuthUserFromRequest(req);
+    if (user && buffer && buffer.length > 0) {
+      saveUserFile({
+        userId: user.userId,
+        storageFolderKey: user.storageFolderKey,
+        originalFilename: file.name,
+        buffer,
+        mimeType: file.type || "application/octet-stream",
+      }).catch((err) => {
+        console.warn("[Parse PDF API] Note: Failed to archive statement to user folder:", err);
+      });
     }
 
     // 1. If Apple Numbers (.numbers) file - unsupported (osascript execution removed for security)

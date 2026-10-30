@@ -36,6 +36,7 @@ export interface NavTabItem {
 }
 
 interface NavbarProps {
+  currentUser?: { id: string; username: string; email: string } | null;
   onOpenUpload: () => void;
   onLoadDemo: () => void;
   onRefreshPrices: () => void;
@@ -54,6 +55,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
+  currentUser,
   onOpenUpload,
   onLoadDemo,
   onRefreshPrices,
@@ -319,6 +321,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Upload className="h-3.5 w-3.5" />
             <span>Upload Statement</span>
           </button>
+
+          {currentUser && (
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80 text-xs text-slate-300">
+              <div className="h-5 w-5 rounded-full bg-blue-600/30 border border-blue-500/40 text-[10px] font-bold text-blue-300 flex items-center justify-center">
+                {currentUser.username ? currentUser.username[0].toUpperCase() : "U"}
+              </div>
+              <span className="font-medium text-slate-200 truncate max-w-[120px]" title={currentUser.email || currentUser.username}>
+                {currentUser.username}
+              </span>
+            </div>
+          )}
 
           <button
             onClick={handleLogout}
