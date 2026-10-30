@@ -68,7 +68,7 @@ export default function LoginPage() {
                 placeholder="Enter password"
                 autoFocus
                 required
-                className="w-full rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3 pr-11 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/20 transition"
+                className="w-full rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3 pr-11 text-base sm:text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/20 transition"
               />
               <button
                 type="button"

@@ -162,7 +162,7 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
   }
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-5 shadow-xl shadow-black/20 space-y-4">
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-3 sm:p-5 shadow-xl shadow-black/20 space-y-4">
       {/* Chart Header Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {/* Mode Selector Tabs & Current Metric Badge */}
@@ -170,36 +170,39 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
           <div className="flex items-center gap-1 rounded-xl bg-slate-950/80 p-1 border border-slate-800">
             <button
               onClick={() => setChartMode("twr")}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 sm:px-3 py-1.5 text-xs font-semibold transition ${
                 chartMode === "twr"
                   ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
                   : "text-slate-400 hover:text-white"
               }`}
             >
               <TrendingUp className="h-3.5 w-3.5" />
-              <span>TWR vs Indices (%)</span>
+              <span className="hidden sm:inline">TWR vs Indices (%)</span>
+              <span className="sm:hidden">TWR</span>
             </button>
             <button
               onClick={() => setChartMode("simple")}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 sm:px-3 py-1.5 text-xs font-semibold transition ${
                 chartMode === "simple"
                   ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
                   : "text-slate-400 hover:text-white"
               }`}
             >
               <Percent className="h-3.5 w-3.5" />
-              <span>Simple Return (%)</span>
+              <span className="hidden sm:inline">Simple Return (%)</span>
+              <span className="sm:hidden">Simple</span>
             </button>
             <button
               onClick={() => setChartMode("value")}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 sm:px-3 py-1.5 text-xs font-semibold transition ${
                 chartMode === "value"
                   ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
                   : "text-slate-400 hover:text-white"
               }`}
             >
               <DollarSign className="h-3.5 w-3.5" />
-              <span>Portfolio Valuation ($)</span>
+              <span className="hidden sm:inline">Portfolio Valuation ($)</span>
+              <span className="sm:hidden">Value ($)</span>
             </button>
           </div>
 
@@ -230,12 +233,12 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
         </div>
 
         {/* Timeframe Selector Pills */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
           {(["1M", "3M", "6M", "1Y", "YTD", "ALL"] as Timeframe[]).map((tf) => (
             <button
               key={tf}
               onClick={() => setTimeframe(tf)}
-              className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+              className={`rounded-lg px-2 sm:px-2.5 py-1 text-xs font-medium transition flex-shrink-0 ${
                 timeframe === tf
                   ? "bg-slate-700 text-white border border-slate-600"
                   : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
@@ -249,9 +252,9 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
 
       {/* Benchmark Toggles */}
       {chartMode !== "value" && (
-        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs border-t border-slate-800/60">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-1 text-xs border-t border-slate-800/60">
           <span className="text-slate-400 font-medium mr-1 text-[11px] uppercase tracking-wider">
-            Compare Indices:
+            Indices:
           </span>
 
           {/* S&P 500 */}
@@ -322,12 +325,12 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
       )}
 
       {/* Chart Canvas */}
-      <div className="h-[340px] w-full pt-2">
-        <ResponsiveContainer width="100%" height="100%">
+      <div className="h-[260px] sm:h-[340px] w-full pt-2">
+        <ResponsiveContainer width="100%" height="100%" minHeight={240}>
           {chartMode === "value" ? (
             <AreaChart
               data={filteredData}
-              margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+              margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
             >
               <defs>
                 <linearGradient id="valGrad" x1="0" y1="0" x2="0" y2="1">
@@ -345,13 +348,14 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
                 stroke="#64748b"
                 ticks={xAxisTicks}
                 tickFormatter={formatXAxisDate}
-                tick={{ fontSize: 11 }}
+                tick={{ fontSize: 10 }}
                 interval={0}
               />
               <YAxis
                 stroke="#64748b"
                 tickFormatter={(v) => formatCurrency(v, { compact: true })}
-                tick={{ fontSize: 11 }}
+                tick={{ fontSize: 10 }}
+                width={42}
                 domain={["dataMin - 500", "auto"]}
               />
               <Tooltip
@@ -413,7 +417,7 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
           ) : (
             <LineChart
               data={filteredData}
-              margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+              margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
               <XAxis
@@ -421,13 +425,14 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
                 stroke="#64748b"
                 ticks={xAxisTicks}
                 tickFormatter={formatXAxisDate}
-                tick={{ fontSize: 11 }}
+                tick={{ fontSize: 10 }}
                 interval={0}
               />
               <YAxis
                 stroke="#64748b"
                 tickFormatter={(v) => `${v}%`}
-                tick={{ fontSize: 11 }}
+                tick={{ fontSize: 10 }}
+                width={40}
               />
               <Tooltip
                 content={({ active, payload, label }) => {

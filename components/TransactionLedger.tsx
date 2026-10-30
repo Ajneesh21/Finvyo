@@ -166,7 +166,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
   ];
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/90 shadow-xl overflow-hidden space-y-4 p-5">
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/90 shadow-xl overflow-hidden space-y-4 p-3 sm:p-5">
       {/* Header & Filter Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -240,8 +240,87 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
         </div>
       </div>
 
+      {/* Mobile Card List (iPhone & small screens) */}
+      <div className="block sm:hidden space-y-2">
+        {displayTransactions.length === 0 ? (
+          <div className="py-8 text-center text-slate-500 text-xs">
+            No matching transactions found.
+          </div>
+        ) : (
+          displayTransactions.map((tx) => {
+            const isBuy = tx.type === "BUY";
+            const isSell = tx.type === "SELL";
+            const isDiv = tx.type === "DIVIDEND";
+            const isDep = tx.type === "DEPOSIT";
+
+            return (
+              <div
+                key={tx.id}
+                className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3 space-y-2 transition active:bg-slate-900/60"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-white text-sm font-mono">{tx.symbol}</span>
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                        isBuy
+                          ? "bg-blue-500/20 text-blue-400"
+                          : isSell
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : isDiv
+                          ? "bg-purple-500/20 text-purple-400"
+                          : isDep
+                          ? "bg-amber-500/20 text-amber-400"
+                          : "bg-slate-700 text-slate-300"
+                      }`}
+                    >
+                      {tx.type}
+                    </span>
+                  </div>
+
+                  <div className="text-right">
+                    <div
+                      className={`font-mono font-bold text-sm ${
+                        tx.amount > 0 ? "text-emerald-400" : tx.amount < 0 ? "text-rose-400" : "text-slate-300"
+                      }`}
+                    >
+                      {formatCurrency(tx.amount)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1.5 border-t border-slate-900">
+                  <span className="font-mono text-slate-400">{formatDate(tx.date, "yyyy-MM-dd")}</span>
+                  <div className="flex items-center gap-2">
+                    {tx.shares > 0 && (
+                      <span className="font-mono text-slate-300">{tx.shares} shs @ {formatCurrency(tx.price)}</span>
+                    )}
+                    <div className="flex items-center gap-1 pl-1">
+                      <button
+                        onClick={() => onEditTransaction(tx)}
+                        className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded"
+                        title="Edit transaction"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onDeleteTransaction(tx.id)}
+                        className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded"
+                        title="Delete transaction"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
       {/* Table */}
-      <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60">
+      <div className="hidden sm:block overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60">
         <table className="w-full text-left text-xs min-w-[750px]">
           <thead className="border-b border-slate-800 bg-slate-900/80 text-slate-400 text-[11px]">
             <tr>

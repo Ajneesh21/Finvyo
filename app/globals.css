@@ -85,3 +85,37 @@ body {
   font-size: 12px !important;
   padding: 2px 0 !important;
 }
+
+/* iOS & iPhone Mobile Safari Optimizations */
+@supports (-webkit-touch-callout: none) {
+  body {
+    /* Safe area padding for notch, dynamic island, and home indicator bar */
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Prevent iOS Safari automatic page zoom on form input focus */
+@media screen and (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Smooth momentum scrolling for iOS containers */
+.overflow-x-auto,
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Hide scrollbar utility for clean mobile horizontal tab pills */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

@@ -62,7 +62,7 @@ export const BenchmarkComparison: React.FC<BenchmarkComparisonProps> = ({
           return (
             <div
               key={key}
-              className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/90 p-5 shadow-lg transition hover:border-slate-700 space-y-4"
+              className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/90 p-4 sm:p-5 shadow-lg transition hover:border-slate-700 space-y-4"
             >
               {/* Card Top */}
               <div className="flex items-start justify-between">

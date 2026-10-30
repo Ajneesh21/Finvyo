@@ -62,18 +62,18 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
   return (
     <div className="space-y-4">
       {/* Top Quick Benchmark Comparison Ribbon */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-2.5 text-xs">
-        <div className="flex items-center gap-2 text-slate-400">
-          <Activity className="h-4 w-4 text-blue-400" />
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 sm:px-4 sm:py-2.5 text-[11px] sm:text-xs">
+        <div className="flex items-center gap-1.5 sm:gap-2 text-slate-400">
+          <Activity className="h-4 w-4 text-blue-400 flex-shrink-0" />
           <span className="font-semibold text-slate-200">
-            Portfolio Inception:
+            Inception:
           </span>{" "}
           <span>
-            {formatDate(summary.firstTransactionDate)} ({summary.daysActive} days active)
+            {formatDate(summary.firstTransactionDate)} ({summary.daysActive}d)
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-4">
           <div className="flex items-center gap-1.5">
             <span className="text-slate-400">Your TWR:</span>
             <span
@@ -85,7 +85,7 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5 border-l border-slate-800 pl-3">
+          <div className="flex items-center gap-1.5 border-l border-slate-800 pl-2.5 sm:pl-3">
             <span className="text-slate-400">Simple Return:</span>
             <span
               className={`font-bold font-mono ${
@@ -98,7 +98,7 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
 
           {sp500 && (
             <div
-              className="flex items-center gap-1.5 border-l border-slate-800 pl-3"
+              className="flex items-center gap-1.5 border-l border-slate-800 pl-2.5 sm:pl-3"
               title={`S&P 500: Today ${formatPercent(sp500.dayChangePercent ?? 0)} | Holding period total return ${formatPercent(sp500.totalReturnPercent)}`}
             >
               <span className="text-slate-400">S&P 500:</span>
@@ -108,9 +108,6 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
                 }`}
               >
                 {formatPercent(sp500.dayChangePercent ?? sp500.totalReturnPercent, { showPlusSign: true })}
-              </span>
-              <span className="text-[10px] text-slate-500 font-mono hidden xl:inline">
-                today ({formatPercent(sp500.totalReturnPercent)} total)
               </span>
             </div>
           )}
@@ -127,9 +124,6 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
                 }`}
               >
                 {formatPercent(nasdaq.dayChangePercent ?? nasdaq.totalReturnPercent, { showPlusSign: true })}
-              </span>
-              <span className="text-[10px] text-slate-500 font-mono hidden xl:inline">
-                today ({formatPercent(nasdaq.totalReturnPercent)} total)
               </span>
             </div>
           )}
@@ -158,7 +152,7 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
       {/* Main KPI Grid */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {/* Card 1: Stock Portfolio Valuation */}
-        <div className="group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
+        <div className="group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-4 sm:p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
           <div className="flex items-center justify-between text-slate-400 text-xs">
             <div className="flex items-center gap-1.5">
               <span className="font-medium text-slate-200">Stock Holdings Value</span>
@@ -201,7 +195,7 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
         </div>
 
         {/* Card 2: Simple Return (ROI) */}
-        <div className="group relative rounded-2xl border border-emerald-500/30 bg-gradient-to-b from-emerald-950/20 to-slate-900/90 p-5 shadow-lg shadow-emerald-500/5 hover:border-emerald-500/50 transition">
+        <div className="group relative rounded-2xl border border-emerald-500/30 bg-gradient-to-b from-emerald-950/20 to-slate-900/90 p-4 sm:p-5 shadow-lg shadow-emerald-500/5 hover:border-emerald-500/50 transition">
           <div className="flex items-center justify-between text-slate-400 text-xs">
             <div className="flex items-center gap-1">
               <span className="font-medium text-emerald-300">Simple Return (ROI)</span>
@@ -236,7 +230,7 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
         </div>
 
         {/* Card 3: Time-Weighted Return (TWR) */}
-        <div className="group relative rounded-2xl border border-blue-500/30 bg-gradient-to-b from-blue-950/30 to-slate-900/90 p-5 shadow-lg shadow-blue-500/5 hover:border-blue-500/50 transition">
+        <div className="group relative rounded-2xl border border-blue-500/30 bg-gradient-to-b from-blue-950/30 to-slate-900/90 p-4 sm:p-5 shadow-lg shadow-blue-500/5 hover:border-blue-500/50 transition">
           <div className="flex items-center justify-between text-slate-400 text-xs">
             <div className="flex items-center gap-1">
               <span className="font-medium text-blue-300">Time-Weighted (TWR)</span>
@@ -267,7 +261,7 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
         </div>
 
         {/* Card 4: Money-Weighted Return (XIRR) */}
-        <div className="group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
+        <div className="group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-4 sm:p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
           <div className="flex items-center justify-between text-slate-400 text-xs">
             <div className="flex items-center gap-1">
               <span className="font-medium">Money-Weighted (XIRR)</span>
@@ -298,7 +292,7 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
         </div>
 
         {/* Card 5: Unrealized Gains & Dividends */}
-        <div className="group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
+        <div className="group relative rounded-2xl border border-slate-800/80 bg-gradient-to-b from-slate-900 to-slate-900/90 p-4 sm:p-5 shadow-lg shadow-black/20 hover:border-slate-700 transition">
           <div className="flex items-center justify-between text-slate-400 text-xs">
             <span className="font-medium">Unrealized Capital Gain</span>
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">

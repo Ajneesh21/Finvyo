@@ -107,11 +107,11 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-4 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative w-full max-w-md max-h-[92dvh] overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
-          <h2 className="text-base font-semibold text-white">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-900/95 backdrop-blur px-4 py-3 sm:px-6 sm:py-4">
+          <h2 className="text-sm sm:text-base font-semibold text-white">
             {transactionToEdit ? "Edit Transaction" : "Add Transaction"}
           </h2>
           <button
@@ -123,7 +123,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 text-xs">
           <div className="grid grid-cols-2 gap-3">
             {/* Type */}
             <div>

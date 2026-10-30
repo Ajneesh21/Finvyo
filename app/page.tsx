@@ -76,14 +76,19 @@ export default function Home() {
   const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
 
-  const tabs: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-    { id: "overview", label: "Performance & Growth", icon: TrendingUp },
-    { id: "holdings", label: "Holdings & Live Quotes", icon: Layers },
-    { id: "allocation", label: "Asset & Sector Allocation", icon: PieChart },
-    { id: "benchmarks", label: "Benchmark Alpha", icon: Globe },
-    { id: "ledger", label: "Transaction Ledger", icon: FileText },
-    { id: "metrics", label: "TWR & Tax Analytics", icon: Calculator },
-    { id: "dcf", label: "DCF Valuation & Forecasts", icon: Scale },
+  const tabs: {
+    id: TabId;
+    label: string;
+    shortLabel: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }[] = [
+    { id: "overview", label: "Performance & Growth", shortLabel: "Overview", icon: TrendingUp },
+    { id: "holdings", label: "Holdings & Live Quotes", shortLabel: "Holdings", icon: Layers },
+    { id: "allocation", label: "Asset & Sector Allocation", shortLabel: "Allocation", icon: PieChart },
+    { id: "benchmarks", label: "Benchmark Alpha", shortLabel: "Benchmarks", icon: Globe },
+    { id: "ledger", label: "Transaction Ledger", shortLabel: "Ledger", icon: FileText },
+    { id: "metrics", label: "TWR & Tax Analytics", shortLabel: "Analytics", icon: Calculator },
+    { id: "dcf", label: "DCF Valuation & Forecasts", shortLabel: "DCF", icon: Scale },
   ];
 
   return (
@@ -105,10 +110,10 @@ export default function Home() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6 sm:px-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
         {/* Tab Navigation Bar */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-1 overflow-x-auto">
-          <div className="flex items-center gap-1">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-2 overflow-x-auto no-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0">
+          <div className="flex items-center gap-1.5 sm:gap-1">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -116,14 +121,15 @@ export default function Home() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold whitespace-nowrap transition ${
+                  className={`flex items-center gap-1.5 sm:gap-2 rounded-xl px-3 py-2 text-xs font-semibold whitespace-nowrap transition flex-shrink-0 ${
                     isActive
                       ? "bg-blue-600/20 text-blue-400 border border-blue-500/30 shadow-sm"
                       : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
                   }`}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span>{tab.label}</span>
+                  <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="sm:hidden">{tab.shortLabel}</span>
                 </button>
               );
             })}

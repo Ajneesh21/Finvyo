@@ -210,8 +210,8 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary, portfolio
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60">
-          <table className="w-full text-left text-xs">
+        <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60 scrollbar-thin">
+          <table className="w-full min-w-[700px] text-left text-xs">
             <thead className="border-b border-slate-800 bg-slate-900/80 text-slate-400 text-[11px]">
               <tr>
                 <th className="px-3 py-2.5">Sub-Period</th>
@@ -343,8 +343,8 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary, portfolio
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60">
-          <table className="w-full text-left text-xs">
+        <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60 scrollbar-thin">
+          <table className="w-full min-w-[700px] text-left text-xs">
             <thead className="border-b border-slate-800 bg-slate-900/80 text-slate-400 text-[11px]">
               <tr>
                 <th className="px-3 py-2.5">Sell Date</th>
@@ -466,8 +466,8 @@ export const MetricsDetail: React.FC<MetricsDetailProps> = ({ summary, portfolio
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60">
-          <table className="w-full text-left text-xs">
+        <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60 scrollbar-thin">
+          <table className="w-full min-w-[700px] text-left text-xs">
             <thead className="border-b border-slate-800 bg-slate-900/80 text-slate-400 text-[11px]">
               <tr>
                 <th className="px-3 py-2.5">Category</th>

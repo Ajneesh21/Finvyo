@@ -69,20 +69,20 @@ export const PortfolioManagerModal: React.FC<PortfolioManagerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3 sm:p-4 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative flex max-h-[92dvh] sm:max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20">
+        <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 sm:px-6 sm:py-4">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20 flex-shrink-0">
               <FolderOpen className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">
+              <h2 className="text-sm sm:text-base font-semibold text-white">
                 Select Portfolio & Statements
               </h2>
-              <p className="text-xs text-slate-400">
-                Choose an imported statement to view, check import timestamps, or delete files
+              <p className="text-[11px] sm:text-xs text-slate-400">
+                Choose an imported statement or manage files
               </p>
             </div>
           </div>
@@ -95,7 +95,7 @@ export const PortfolioManagerModal: React.FC<PortfolioManagerModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3 sm:space-y-4">
           {/* Active / Total Banner */}
           <div className="flex items-center justify-between text-xs text-slate-400 px-1">
             <span className="font-semibold uppercase tracking-wider text-slate-300">

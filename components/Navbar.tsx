@@ -112,11 +112,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="flex items-center gap-2 mt-0.5">
               <button
                 onClick={onOpenPortfolioManager}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-800/80 px-2.5 py-1 text-xs font-medium text-slate-200 transition hover:bg-slate-700 hover:border-slate-600 hover:text-white group shadow-sm"
+                className="flex items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-800/80 px-2 py-1 text-xs font-medium text-slate-200 transition hover:bg-slate-700 hover:border-slate-600 hover:text-white group shadow-sm"
                 title="Open Select Portfolio window to view uploaded statements and timestamps"
               >
-                <FolderOpen className="h-3.5 w-3.5 text-blue-400 group-hover:text-blue-300" />
-                <span className="font-semibold">Select Portfolio</span>
+                <FolderOpen className="h-3.5 w-3.5 text-blue-400 group-hover:text-blue-300 flex-shrink-0" />
+                <span className="font-semibold hidden sm:inline">Select Portfolio</span>
+                <span className="font-semibold sm:hidden">Portfolios</span>
                 {portfolios.length > 0 && (
                   <span className="rounded-full bg-blue-500/20 px-1.5 py-0.2 text-[10px] font-bold text-blue-300">
                     {portfolios.length}
@@ -134,7 +135,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         autoFocus
                         value={renameValue}
                         onChange={(e) => setRenameValue(e.target.value)}
-                        className="rounded border border-blue-500 bg-slate-950 px-1.5 py-0.5 text-xs text-white focus:outline-none"
+                        className="rounded border border-blue-500 bg-slate-950 px-1.5 py-0.5 text-xs text-white focus:outline-none w-24 sm:w-auto"
                       />
                       <button
                         type="submit"
@@ -153,10 +154,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </button>
                     </form>
                   ) : (
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-0.5 sm:gap-1">
                       <span
                         onClick={onOpenPortfolioManager}
-                        className="text-xs text-slate-300 hover:text-white font-medium truncate max-w-[120px] sm:max-w-[180px] cursor-pointer"
+                        className="text-xs text-slate-300 hover:text-white font-medium truncate max-w-[75px] sm:max-w-[180px] cursor-pointer"
                         title={`Active Portfolio: ${portfolioName} (Click to open manager)`}
                       >
                         {portfolioName}
@@ -239,10 +240,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <button
             onClick={onOpenUpload}
-            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 transition hover:from-blue-500 hover:to-indigo-500 ring-1 ring-inset ring-white/10"
+            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-2.5 py-1.5 sm:px-3.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 transition hover:from-blue-500 hover:to-indigo-500 ring-1 ring-inset ring-white/10 flex-shrink-0"
           >
             <Upload className="h-3.5 w-3.5" />
-            <span>Upload Statement</span>
+            <span className="hidden sm:inline">Upload Statement</span>
+            <span className="sm:hidden">Upload</span>
           </button>
         </div>
       </div>

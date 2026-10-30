@@ -1,10 +1,23 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Finvyo | Your wealth. In view.",
   description:
     "Finvyo – Your wealth. In view. Analyze your US stock transaction statements, compute Time-Weighted Return (TWR), track real-time stock prices, and benchmark against S&P 500, Nasdaq, and Nifty 50.",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Finvyo",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  viewportFit: "cover",
+  themeColor: "#0b0f19",
 };
 
 export default function RootLayout({

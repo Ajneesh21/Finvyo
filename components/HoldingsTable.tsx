@@ -130,15 +130,15 @@ const HoldingsTableInner: React.FC<HoldingsTableProps> = ({
   }
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/90 shadow-xl overflow-hidden space-y-4 p-5">
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/90 shadow-xl overflow-hidden space-y-4 p-3 sm:p-5">
       {/* Table Header Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Layers className="h-4 w-4 text-blue-400" />
-            Active Stock Holdings ({isFiltered ? `${filteredHoldings.length} of ${holdings.length}` : holdings.length} Assets)
+          <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+            <Layers className="h-4 w-4 text-blue-400 flex-shrink-0" />
+            <span>Active Stock Holdings ({isFiltered ? `${filteredHoldings.length} of ${holdings.length}` : holdings.length} Assets)</span>
           </h3>
-          <p className="text-xs text-slate-400">
+          <p className="text-[11px] sm:text-xs text-slate-400">
             Real-time market prices with live profit/loss and portfolio weight
           </p>
         </div>
@@ -156,8 +156,119 @@ const HoldingsTableInner: React.FC<HoldingsTableProps> = ({
         </div>
       </div>
 
-      {/* Table with proper horizontal scroll and min-width to prevent cutting off */}
-      <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60 scrollbar-thin">
+      {/* Mobile Card View (iPhone & small screens) */}
+      <div className="block sm:hidden space-y-2.5">
+        {filteredHoldings.map((h) => {
+          const isGain = h.unrealizedPnL >= 0;
+          const isDayUp = h.dayChangePercent >= 0;
+          const sectorColor = getSectorColor(h.sector);
+
+          return (
+            <div
+              key={h.symbol}
+              className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3 space-y-2 transition active:bg-slate-900/60"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div
+                    className="flex h-8 w-8 items-center justify-center rounded-lg font-bold text-xs flex-shrink-0"
+                    style={{
+                      backgroundColor: `${sectorColor}20`,
+                      color: sectorColor,
+                      border: `1px solid ${sectorColor}40`,
+                    }}
+                  >
+                    {h.symbol.slice(0, 3)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-white text-sm font-mono">
+                        {h.symbol}
+                      </span>
+                      <span
+                        className="rounded px-1.5 py-0.2 text-[10px] font-medium"
+                        style={{
+                          backgroundColor: `${sectorColor}15`,
+                          color: sectorColor,
+                        }}
+                      >
+                        {h.sector}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 truncate max-w-[130px]">
+                      {h.companyName}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right flex-shrink-0">
+                  <div className="text-sm font-bold font-mono text-white">
+                    {formatCurrency(h.currentValue)}
+                  </div>
+                  <div
+                    className={`text-[11px] font-mono font-semibold flex items-center justify-end ${
+                      isGain ? "text-emerald-400" : "text-rose-400"
+                    }`}
+                  >
+                    {formatCurrency(h.unrealizedPnL, { showPlusSign: true })} ({formatPercent(h.unrealizedPnLPercent)})
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-slate-900 text-[11px] text-slate-400">
+                <div>
+                  <span className="text-slate-500">Shares: </span>
+                  <span className="font-mono text-slate-300 font-medium">
+                    {h.shares.toLocaleString("en-US", { maximumFractionDigits: 4 })}
+                  </span>
+                  <span className="text-slate-600 mx-1">·</span>
+                  <span className="text-slate-500">Avg: </span>
+                  <span className="font-mono text-slate-300 font-medium">{formatCurrency(h.avgCostBasis)}</span>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono text-slate-200 font-bold">{formatCurrency(h.currentPrice)}</span>
+                  <span
+                    className={`font-mono font-semibold ${
+                      isDayUp ? "text-emerald-400" : "text-rose-400"
+                    }`}
+                  >
+                    {isDayUp ? "+" : ""}{formatPercent(h.dayChangePercent)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Weight bar */}
+              <div className="flex items-center gap-2 pt-1">
+                <div className="flex-1 rounded-full bg-slate-900 h-1 overflow-hidden">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, getWeight(h)))}%`,
+                      backgroundColor: sectorColor,
+                    }}
+                  />
+                </div>
+                <span className="text-[10px] font-mono text-slate-400">{getWeight(h).toFixed(1)}%</span>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Mobile Total Footer Card */}
+        <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-3 flex items-center justify-between font-mono text-xs">
+          <span className="text-slate-400 font-sans font-medium">Total Portfolio:</span>
+          <div className="text-right">
+            <span className="font-bold text-white text-sm">{formatCurrency(displayTotalValue)}</span>
+            <div className={`text-[11px] font-semibold ${totalUnrealized >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+              {formatCurrency(totalUnrealized, { showPlusSign: true })} ({formatPercent(totalUnrealizedPercent)})
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop/Tablet Table (sm and up) */}
+      <div className="hidden sm:block overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60 scrollbar-thin">
         <table className="w-full min-w-[850px] text-left text-xs border-collapse">
           <thead className="border-b border-slate-800 bg-slate-900/90 text-slate-400 text-[11px] uppercase tracking-wider">
             <tr>

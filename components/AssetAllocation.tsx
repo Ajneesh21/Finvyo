@@ -76,7 +76,7 @@ const AssetAllocationInner: React.FC<AssetAllocationProps> = ({
       }
     >
       {/* 1. Stock / Asset Breakdown Donut */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-5 shadow-xl space-y-4">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-3.5 sm:p-5 shadow-xl space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-bold text-white flex items-center gap-2">
             <PieIcon className="h-4 w-4 text-blue-400" />
@@ -163,7 +163,7 @@ const AssetAllocationInner: React.FC<AssetAllocationProps> = ({
       </div>
 
       {/* 2. Sector Allocation Breakdown */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-5 shadow-xl space-y-4">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-3.5 sm:p-5 shadow-xl space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-bold text-white flex items-center gap-2">
             <BarChart3 className="h-4 w-4 text-purple-400" />
