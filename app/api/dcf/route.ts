@@ -4,23 +4,12 @@ import { getStockQuote } from "@/lib/stock-api";
 import { getCachedData, setCachedData } from "@/lib/redis";
 import { FinancialData, HistoricalYearData } from "@/lib/dcf-types";
 import { getTickerSector } from "@/lib/utils";
-import { checkRateLimit } from "@/lib/rate-limiter";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limiter";
 
 export const dynamic = "force-dynamic";
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 const DCF_CACHE_TTL = 3600; // 1 hour cache for fundamentals
-
-function getClientIp(req: NextRequest): string {
-  // When behind a trusted reverse proxy (Vercel, Cloudflare), prefer req.ip
-  // In direct-access mode, X-Forwarded-For can be spoofed
-  return (
-    (req as any).ip ||
-    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
-    req.headers.get("x-real-ip") ||
-    "127.0.0.1"
-  );
-}
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);

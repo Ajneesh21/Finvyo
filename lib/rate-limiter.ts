@@ -1,4 +1,5 @@
 import { getRedisClient } from "./redis";
+import type { NextRequest } from "next/server";
 
 interface RateLimitConfig {
   maxRequests: number;
@@ -19,6 +20,34 @@ if ttl == -1 then
 end
 return {current, ttl}
 `;
+
+/**
+ * Extracts client IP securely.
+ * Prefers X-Real-IP set by Nginx from $remote_addr.
+ * Never blindly trusts raw X-Forwarded-For to prevent IP spoofing attacks.
+ */
+export function getClientIp(req: NextRequest): string {
+  const realIp = req.headers.get("x-real-ip");
+  if (realIp && realIp.trim()) {
+    return realIp.trim();
+  }
+
+  return (req as any).ip || "127.0.0.1";
+}
+
+/**
+ * Resets or clears the rate limit counter for a specific identifier (e.g. after successful login).
+ */
+export async function resetRateLimit(identifier: string): Promise<void> {
+  const cacheKey = `ratelimit:${identifier}`;
+  try {
+    const redis = getRedisClient();
+    if (redis) {
+      await redis.del(cacheKey);
+    }
+  } catch {}
+  memoryRateLimitMap.delete(identifier);
+}
 
 /**
  * Sliding window rate limiter supporting atomic distributed Redis with isolated in-memory fallback.

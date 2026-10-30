@@ -1,10 +1,51 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { signAccessToken, signRefreshToken, verifyToken,
   ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/auth";
+import { checkRateLimit, getClientIp, resetRateLimit } from "@/lib/rate-limiter";
+
+/**
+ * Constant-time string comparison to prevent timing attack leaks.
+ */
+function safeTimingCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    // Perform dummy timing safe equal against self to equalize execution time
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 // POST /api/auth — Login
 export async function POST(req: NextRequest) {
-  const { password } = await req.json();
+  const ip = getClientIp(req);
+  const rateLimitKey = `auth:login:${ip}`;
+
+  // 1. Rate Limiting: Max 5 failed attempts per 15 minutes per IP
+  const rateCheck = await checkRateLimit(rateLimitKey, {
+    maxRequests: 5,
+    windowSeconds: 900,
+  });
+
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      {
+        error: "Too many failed login attempts. Please wait 15 minutes before trying again.",
+        retryAfter: rateCheck.resetInSeconds,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rateCheck.resetInSeconds),
+        },
+      }
+    );
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const password = typeof body?.password === "string" ? body.password : "";
 
   const adminPassword = process.env.ADMIN_PASSWORD;
   const jwtSecret = process.env.JWT_SECRET;
@@ -16,9 +57,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (password !== adminPassword) {
+  // 2. Constant-time timing safe comparison
+  if (!password || !safeTimingCompare(password, adminPassword)) {
     return NextResponse.json({ error: "Invalid password" }, { status: 401 });
   }
+
+  // 3. Reset rate limit counter on successful authentication
+  await resetRateLimit(rateLimitKey);
 
   const [accessToken, refreshToken] = await Promise.all([
     signAccessToken(),

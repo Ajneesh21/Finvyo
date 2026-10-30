@@ -1,22 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { computePortfolioSummary } from "@/lib/portfolio-engine";
-import { checkRateLimit } from "@/lib/rate-limiter";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limiter";
 import { validateTransactionsList } from "@/lib/validation";
 import { updatePortfolioSummary } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function getClientIp(req: NextRequest): string {
-  // When behind a trusted reverse proxy (Vercel, Cloudflare), prefer req.ip
-  // In direct-access mode, X-Forwarded-For can be spoofed
-  return (
-    (req as any).ip ||
-    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
-    req.headers.get("x-real-ip") ||
-    "127.0.0.1"
-  );
-}
 
 export async function POST(req: NextRequest) {
   try {
