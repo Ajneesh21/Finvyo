@@ -375,7 +375,7 @@ const HoldingsTableInner: React.FC<HoldingsTableProps> = ({
                             {h.sector}
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-400 truncate max-w-[160px]">
+                        <p className="text-[11px] text-slate-400 truncate max-w-[160px] md:max-w-xs lg:max-w-md xl:max-w-lg 2xl:max-w-none">
                           {h.companyName}
                         </p>
                       </div>

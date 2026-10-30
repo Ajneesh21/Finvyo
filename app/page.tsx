@@ -134,8 +134,8 @@ export default function Home() {
         onSelectTab={setActiveTab}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-2.5 sm:px-6 py-2.5 sm:py-6 space-y-3.5 sm:space-y-6">
+      {/* Main Content Area: Expansive width utilizing Mac, iPad, and desktop screens */}
+      <main className="flex-1 max-w-[1720px] w-full mx-auto px-2.5 sm:px-6 lg:px-8 2xl:px-12 py-2.5 sm:py-6 space-y-3.5 sm:space-y-6">
         {/* Desktop Tab Navigation Bar (hidden on mobile, mobile uses hamburger drawer) */}
         <div className="hidden sm:flex items-center justify-between border-b border-slate-800 pb-2 overflow-x-auto no-scrollbar touch-pan-x">
           <div className="flex items-center gap-1.5 sm:gap-1">
@@ -342,7 +342,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 bg-[#080b12] py-4 text-center text-xs text-slate-500">
-        <div className="mx-auto max-w-7xl px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div className="mx-auto max-w-[1720px] px-4 sm:px-6 lg:px-8 2xl:px-12 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p>
             Finvyo &copy; {new Date().getFullYear()} &middot; Your wealth. In view. &middot; Next.js + Redis
           </p>

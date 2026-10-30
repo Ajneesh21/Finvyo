@@ -87,8 +87,8 @@ const AssetAllocationInner: React.FC<AssetAllocationProps> = ({
           </span>
         </div>
 
-        <div className="h-56 w-full min-w-0 relative">
-          <ResponsiveContainer width="100%" height="100%" minHeight={220}>
+        <div className="h-64 sm:h-72 lg:h-80 w-full min-w-0 relative">
+          <ResponsiveContainer width="100%" height="100%" minHeight={240}>
             <PieChart>
               <Pie
                 data={stockData}
@@ -96,8 +96,8 @@ const AssetAllocationInner: React.FC<AssetAllocationProps> = ({
                 nameKey="name"
                 cx="50%"
                 cy="50%"
-                innerRadius={55}
-                outerRadius={80}
+                innerRadius={60}
+                outerRadius={92}
                 paddingAngle={3}
               >
                 {stockData.map((entry, index) => (
@@ -184,7 +184,7 @@ const AssetAllocationInner: React.FC<AssetAllocationProps> = ({
                     className="h-2.5 w-2.5 rounded-full flex-shrink-0"
                     style={{ backgroundColor: sec.color }}
                   />
-                  <span className="font-medium text-slate-200 truncate max-w-[150px]">
+                  <span className="font-medium text-slate-200 truncate max-w-[150px] sm:max-w-xs md:max-w-sm lg:max-w-md">
                     {sec.name}
                   </span>
                 </div>

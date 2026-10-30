@@ -410,7 +410,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({
                     </td>
 
                     {/* Notes */}
-                    <td className="px-3 py-3 text-slate-400 truncate max-w-[160px] sm:max-w-xs text-[11px]">
+                    <td className="px-3 py-3 text-slate-400 truncate max-w-[160px] sm:max-w-xs md:max-w-sm lg:max-w-md xl:max-w-lg text-[11px]">
                       {tx.notes || "-"}
                     </td>
 

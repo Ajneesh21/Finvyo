@@ -184,8 +184,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* 2. Desktop Navigation Bar (>= sm) */}
-      <div className="hidden sm:flex mx-auto max-w-7xl items-center justify-between px-4 sm:px-6 py-2.5 sm:py-3">
+      {/* 2. Desktop Navigation Bar (>= sm): Expansive full-width layout for Mac & Desktop */}
+      <div className="hidden sm:flex mx-auto max-w-[1720px] items-center justify-between px-4 sm:px-6 lg:px-8 2xl:px-12 py-2.5 sm:py-3">
         {/* Brand & Portfolio Selector */}
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 shadow-lg shadow-blue-500/20 ring-1 ring-blue-400/30 flex-shrink-0">

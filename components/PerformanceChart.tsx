@@ -324,8 +324,8 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({
         </div>
       )}
 
-      {/* Chart Canvas */}
-      <div className="h-[310px] sm:h-[380px] w-full pt-1 min-w-0 relative">
+      {/* Chart Canvas: Expands gracefully on Mac & wide screens */}
+      <div className="h-[310px] sm:h-[400px] lg:h-[450px] 2xl:h-[480px] w-full pt-1 min-w-0 relative">
         <ResponsiveContainer width="100%" height="100%" minHeight={280}>
           {chartMode === "value" ? (
             <AreaChart

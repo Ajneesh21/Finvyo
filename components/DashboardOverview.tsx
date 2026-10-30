@@ -167,7 +167,7 @@ const DashboardOverviewInner: React.FC<DashboardOverviewProps> = ({
               <Wallet className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-1.5 text-2xl font-extrabold tracking-tight text-white font-mono">
+          <div className="mt-1.5 text-2xl 2xl:text-3xl font-extrabold tracking-tight text-white font-mono">
             {formatCurrency(summary.totalValue)}
           </div>
           <div className="mt-2 flex items-center justify-between text-xs pt-1.5 border-t border-slate-800/50">
