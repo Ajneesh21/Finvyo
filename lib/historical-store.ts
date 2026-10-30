@@ -34,14 +34,35 @@ function withLock<T>(fn: () => Promise<T>): Promise<T> {
   });
 }
 
-function atomicWriteFileSync(filePath: string, data: string) {
+function safeWriteFileSync(filePath: string, data: string): void {
   const dir = path.dirname(filePath);
-  const tempPath = path.join(
-    dir,
-    `.${path.basename(filePath)}.tmp.${Date.now()}.${Math.random().toString(36).slice(2)}`
-  );
-  fs.writeFileSync(tempPath, data, "utf-8");
-  fs.renameSync(tempPath, filePath);
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch (err) {
+    console.error(`[HistoricalStore] Failed to ensure directory ${dir}:`, err);
+  }
+
+  // Attempt atomic write first
+  try {
+    const tempPath = path.join(
+      dir,
+      `.${path.basename(filePath)}.tmp.${Date.now()}.${Math.random().toString(36).slice(2)}`
+    );
+    fs.writeFileSync(tempPath, data, "utf-8");
+    fs.renameSync(tempPath, filePath);
+    return;
+  } catch (atomicErr) {
+    // Atomic rename can fail across Docker mount boundaries; fall back to direct write
+    try {
+      fs.writeFileSync(filePath, data, "utf-8");
+      return;
+    } catch (directErr) {
+      console.error(`[HistoricalStore] Direct write to ${filePath} failed:`, directErr);
+      throw directErr;
+    }
+  }
 }
 
 // In-memory hot cache
@@ -53,7 +74,7 @@ function ensureStorage(): void {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
     if (!fs.existsSync(HISTORICAL_FILE)) {
-      atomicWriteFileSync(HISTORICAL_FILE, JSON.stringify({}, null, 2));
+      safeWriteFileSync(HISTORICAL_FILE, JSON.stringify({}, null, 2));
     }
   } catch (err) {
     console.error("[HistoricalStore] Failed to ensure storage directory:", err);
@@ -192,7 +213,7 @@ export async function saveHistoricalPrices(
     memoryStore = store;
 
     try {
-      atomicWriteFileSync(HISTORICAL_FILE, JSON.stringify(store, null, 2));
+      safeWriteFileSync(HISTORICAL_FILE, JSON.stringify(store, null, 2));
     } catch (err) {
       console.error("[HistoricalStore] Error saving historical-prices.json:", err);
     }

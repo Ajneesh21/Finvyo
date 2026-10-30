@@ -12,6 +12,16 @@ function sanitizeCsvField(val: unknown): string {
   return `"${str.replace(/"/g, '""')}"`;
 }
 
+function syncLocalBackup(ports: StoredPortfolio[]): void {
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem("finvyo_portfolios_backup", JSON.stringify(ports));
+    } catch {
+      // Ignore quota errors
+    }
+  }
+}
+
 export function usePortfolio() {
   const [portfolios, setPortfolios] = useState<StoredPortfolio[]>([]);
   const [currentPortfolioId, setCurrentPortfolioId] = useState<string>("");
@@ -85,10 +95,36 @@ export function usePortfolio() {
     async function loadInitialData() {
       try {
         const res = await fetch("/api/portfolios");
-        const data = await res.json();
-        const storedList: StoredPortfolio[] = data.portfolios || [];
+        let storedList: StoredPortfolio[] = [];
+
+        if (res.ok) {
+          const data = await res.json();
+          storedList = data.portfolios || [];
+        }
+
+        // Resilient fallback: If server returned empty, check browser localStorage backup
+        if (storedList.length === 0 && typeof window !== "undefined") {
+          try {
+            const local = localStorage.getItem("finvyo_portfolios_backup");
+            if (local) {
+              const parsed = JSON.parse(local);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                storedList = parsed;
+                // Re-sync backup to server in background
+                for (const port of storedList) {
+                  fetch("/api/portfolios", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(port),
+                  }).catch(() => {});
+                }
+              }
+            }
+          } catch {}
+        }
 
         if (storedList.length > 0) {
+          syncLocalBackup(storedList);
           setPortfolios(storedList);
           const defaultPort = storedList.find((p) => p.isDefault) || storedList[0];
           setCurrentPortfolioId(defaultPort.id);
@@ -112,6 +148,25 @@ export function usePortfolio() {
         }
       } catch (err) {
         console.error("Failed to load stored portfolios:", err instanceof Error ? err.message : String(err));
+        // Also try localStorage if fetch itself failed (e.g. network/server reload)
+        if (typeof window !== "undefined") {
+          try {
+            const local = localStorage.getItem("finvyo_portfolios_backup");
+            if (local) {
+              const parsed = JSON.parse(local);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                const defaultPort = parsed.find((p: StoredPortfolio) => p.isDefault) || parsed[0];
+                setPortfolios(parsed);
+                setCurrentPortfolioId(defaultPort.id);
+                setPortfolioName(defaultPort.name);
+                setTransactions(defaultPort.transactions);
+                if (defaultPort.lastComputedSummary) {
+                  setSummary(defaultPort.lastComputedSummary);
+                }
+              }
+            }
+          } catch {}
+        }
         setIsLoading(false);
       }
     }
@@ -150,9 +205,11 @@ export function usePortfolio() {
 
   // Handle Portfolio Rename
   const handleRenamePortfolio = async (id: string, newName: string) => {
-    setPortfolios((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, name: newName } : item))
-    );
+    setPortfolios((prev) => {
+      const updated = prev.map((item) => (item.id === id ? { ...item, name: newName } : item));
+      syncLocalBackup(updated);
+      return updated;
+    });
     if (currentPortfolioId === id) {
       setPortfolioName(newName);
     }
@@ -171,6 +228,7 @@ export function usePortfolio() {
   // Handle Portfolio Deletion
   const handleDeletePortfolio = async (id: string) => {
     const remaining = portfolios.filter((item) => item.id !== id);
+    syncLocalBackup(remaining);
     setPortfolios(remaining);
 
     if (currentPortfolioId === id) {
@@ -210,7 +268,11 @@ export function usePortfolio() {
       isDefault: true,
     };
 
-    setPortfolios((prev) => [newPort, ...prev.map((p) => ({ ...p, isDefault: false }))]);
+    setPortfolios((prev) => {
+      const updated = [newPort, ...prev.map((p) => ({ ...p, isDefault: false }))];
+      syncLocalBackup(updated);
+      return updated;
+    });
     setCurrentPortfolioId(newPort.id);
     setTransactions(newTx);
 
@@ -229,8 +291,8 @@ export function usePortfolio() {
       console.error("Failed to persist new portfolio:", err instanceof Error ? err.message : String(err));
     }
 
-    // 2. Trigger portfolio calculation after persistence is confirmed
-    calculatePortfolio(newTx, true);
+    // 2. Trigger portfolio calculation with explicit portfolio ID
+    calculatePortfolio(newTx, true, newPort.id);
   };
 
   // Handle Load Demo with Lazy Dynamic Import
@@ -248,7 +310,7 @@ export function usePortfolio() {
 
   // Refresh live prices
   const handleRefreshPrices = () => {
-    calculatePortfolio(transactions, false);
+    calculatePortfolio(transactions, false, currentPortfolioId);
   };
 
   // Save Transaction (Add / Edit)
@@ -262,16 +324,18 @@ export function usePortfolio() {
     }
 
     setTransactions(updatedTxList);
-    calculatePortfolio(updatedTxList, false);
+    calculatePortfolio(updatedTxList, false, currentPortfolioId);
 
     // Update stored portfolio
     if (currentPortfolioId) {
       const p = portfolios.find((item) => item.id === currentPortfolioId);
       if (p) {
         const updatedPort = { ...p, transactions: updatedTxList };
-        setPortfolios((prev) =>
-          prev.map((item) => (item.id === currentPortfolioId ? updatedPort : item))
-        );
+        setPortfolios((prev) => {
+          const updated = prev.map((item) => (item.id === currentPortfolioId ? updatedPort : item));
+          syncLocalBackup(updated);
+          return updated;
+        });
         try {
           await fetch("/api/portfolios", {
             method: "POST",
@@ -289,15 +353,17 @@ export function usePortfolio() {
   const handleDeleteTransaction = async (id: string) => {
     const updatedTxList = transactions.filter((t) => t.id !== id);
     setTransactions(updatedTxList);
-    calculatePortfolio(updatedTxList, false);
+    calculatePortfolio(updatedTxList, false, currentPortfolioId);
 
     if (currentPortfolioId) {
       const p = portfolios.find((item) => item.id === currentPortfolioId);
       if (p) {
         const updatedPort = { ...p, transactions: updatedTxList };
-        setPortfolios((prev) =>
-          prev.map((item) => (item.id === currentPortfolioId ? updatedPort : item))
-        );
+        setPortfolios((prev) => {
+          const updated = prev.map((item) => (item.id === currentPortfolioId ? updatedPort : item));
+          syncLocalBackup(updated);
+          return updated;
+        });
         try {
           await fetch("/api/portfolios", {
             method: "POST",
