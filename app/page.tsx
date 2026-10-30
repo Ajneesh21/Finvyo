@@ -115,7 +115,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen min-h-[100dvh] bg-[#0b0f19] text-slate-100 flex flex-col">
-      {/* Top Navigation Bar with Portfolio Switcher */}
+      {/* Top Navigation Bar with Portfolio Switcher & Mobile Drawer */}
       <Navbar
         onOpenUpload={() => setIsUploadOpen(true)}
         onLoadDemo={handleLoadDemo}
@@ -129,12 +129,15 @@ export default function Home() {
         onRenamePortfolio={handleRenamePortfolio}
         onDeletePortfolio={handleDeletePortfolio}
         onOpenPortfolioManager={() => setIsPortfolioManagerOpen(true)}
+        tabs={tabs}
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
-        {/* Tab Navigation Bar */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2 overflow-x-auto no-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0 touch-pan-x">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-3 sm:py-6 space-y-4 sm:space-y-6">
+        {/* Desktop Tab Navigation Bar (hidden on mobile, mobile uses hamburger drawer) */}
+        <div className="hidden sm:flex items-center justify-between border-b border-slate-800 pb-2 overflow-x-auto no-scrollbar touch-pan-x">
           <div className="flex items-center gap-1.5 sm:gap-1">
             {tabs.map((tab) => {
               const Icon = tab.icon;

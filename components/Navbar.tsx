@@ -13,8 +13,26 @@ import {
   FolderOpen,
   Download,
   AlertTriangle,
+  Menu,
+  ChevronDown,
 } from "lucide-react";
 import { StoredPortfolio } from "@/lib/storage";
+
+export type TabId =
+  | "overview"
+  | "holdings"
+  | "allocation"
+  | "benchmarks"
+  | "ledger"
+  | "metrics"
+  | "dcf";
+
+export interface NavTabItem {
+  id: TabId;
+  label: string;
+  shortLabel: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
 
 interface NavbarProps {
   onOpenUpload: () => void;
@@ -29,6 +47,9 @@ interface NavbarProps {
   onRenamePortfolio: (id: string, newName: string) => void;
   onDeletePortfolio: (id: string) => void;
   onOpenPortfolioManager: () => void;
+  tabs?: NavTabItem[];
+  activeTab?: TabId;
+  onSelectTab?: (tab: TabId) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -44,12 +65,16 @@ export const Navbar: React.FC<NavbarProps> = ({
   onRenamePortfolio,
   onDeletePortfolio,
   onOpenPortfolioManager,
+  tabs,
+  activeTab = "overview",
+  onSelectTab,
 }) => {
   const [marketStatus, setMarketStatus] = useState<{
     isOpen: boolean;
     label: string;
   }>({ isOpen: false, label: "Market Closed" });
 
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(portfolioName);
   const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
@@ -89,13 +114,80 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
+  const currentTabObj = tabs?.find((t) => t.id === activeTab);
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-[#0b0f19]/90 backdrop-blur-md pt-[env(safe-area-inset-top,0px)]">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3">
+      {/* 1. Mobile Top Navigation Bar (< sm) */}
+      <div className="flex sm:hidden items-center justify-between px-3 py-2.5">
+        {/* Left: Hamburger Button + Brand + Current View Pill */}
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            onClick={() => setIsDrawerOpen(true)}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-800 bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 active:scale-95 transition flex-shrink-0"
+            aria-label="Open Navigation Menu"
+            title="Open views and actions menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 shadow-sm shadow-blue-500/20 ring-1 ring-blue-400/30">
+              <TrendingUp className="h-4 w-4 text-white" />
+            </div>
+            <span className="text-sm font-bold tracking-tight text-white">
+              Fin<span className="text-blue-400">vyo</span>
+            </span>
+          </div>
+
+          {currentTabObj && (
+            <button
+              onClick={() => setIsDrawerOpen(true)}
+              className="flex items-center gap-1 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-xs font-semibold text-blue-300 active:bg-blue-500/20 transition min-w-0"
+              title="Tap to switch dashboard view"
+            >
+              <span className="truncate max-w-[80px] xs:max-w-[110px]">{currentTabObj.shortLabel}</span>
+              <ChevronDown className="h-3 w-3 text-blue-400 flex-shrink-0" />
+            </button>
+          )}
+        </div>
+
+        {/* Right: Portfolio Manager Button + Quick Refresh + Quick Upload */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <button
+            onClick={onOpenPortfolioManager}
+            className="flex items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-800/80 px-2 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition max-w-[90px] xs:max-w-[115px]"
+            title={`Active Portfolio: ${portfolioName} (Tap to switch or manage)`}
+          >
+            <FolderOpen className="h-3.5 w-3.5 text-blue-400 flex-shrink-0" />
+            <span className="truncate">{portfolioName}</span>
+          </button>
+
+          <button
+            onClick={onRefreshPrices}
+            disabled={isRefreshing}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-800/80 text-blue-400 hover:text-white active:scale-95 transition disabled:opacity-50"
+            title="Refresh Live Stock Quotes"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
+          </button>
+
+          <button
+            onClick={onOpenUpload}
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/20 active:scale-95 transition ring-1 ring-inset ring-white/10"
+            title="Upload Statement (.xlsx / .csv)"
+          >
+            <Upload className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Desktop Navigation Bar (>= sm) */}
+      <div className="hidden sm:flex mx-auto max-w-7xl items-center justify-between px-4 sm:px-6 py-2.5 sm:py-3">
         {/* Brand & Portfolio Selector */}
-        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-          <div className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 shadow-lg shadow-blue-500/20 ring-1 ring-blue-400/30 flex-shrink-0">
-            <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 shadow-lg shadow-blue-500/20 ring-1 ring-blue-400/30 flex-shrink-0">
+            <TrendingUp className="h-5 w-5 text-white" />
           </div>
 
           <div className="min-w-0">
@@ -109,15 +201,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
 
             {/* Select Portfolio Button & Current Portfolio Actions */}
-            <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5">
+            <div className="flex items-center gap-2 mt-0.5">
               <button
                 onClick={onOpenPortfolioManager}
-                className="flex items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-800/80 px-2 py-1 text-xs font-medium text-slate-200 transition hover:bg-slate-700 hover:border-slate-600 hover:text-white group shadow-sm flex-shrink-0"
+                className="flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-700 hover:border-slate-600 hover:text-white group shadow-sm flex-shrink-0"
                 title="Open Select Portfolio window to view uploaded statements and timestamps"
               >
                 <FolderOpen className="h-3.5 w-3.5 text-blue-400 group-hover:text-blue-300 flex-shrink-0" />
-                <span className="font-semibold hidden sm:inline">Select Portfolio</span>
-                <span className="font-semibold sm:hidden">Portfolios</span>
+                <span>Select Portfolio</span>
                 {portfolios.length > 0 && (
                   <span className="rounded-full bg-blue-500/20 px-1.5 py-0.2 text-[10px] font-bold text-blue-300">
                     {portfolios.length}
@@ -128,60 +219,32 @@ export const Navbar: React.FC<NavbarProps> = ({
               {hasData && currentPortfolioId && (
                 <div className="flex items-center gap-1 min-w-0">
                   <span className="text-slate-600">/</span>
-                  {isRenaming ? (
-                    <form onSubmit={handleSaveRename} className="flex items-center gap-1">
-                      <input
-                        type="text"
-                        autoFocus
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        className="rounded border border-blue-500 bg-slate-950 px-1.5 py-0.5 text-xs text-white focus:outline-none w-20 sm:w-auto"
-                      />
-                      <button
-                        type="submit"
-                        className="rounded p-0.5 text-emerald-400 hover:bg-slate-800"
-                        title="Save name"
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsRenaming(false)}
-                        className="rounded p-0.5 text-slate-400 hover:bg-slate-800"
-                        title="Cancel"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </form>
-                  ) : (
-                    <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
-                      <span
-                        onClick={onOpenPortfolioManager}
-                        className="text-xs text-slate-300 hover:text-white font-medium truncate max-w-[65px] xs:max-w-[100px] sm:max-w-[180px] cursor-pointer"
-                        title={`Active Portfolio: ${portfolioName} (Click to open manager)`}
-                      >
-                        {portfolioName}
-                      </span>
-                      <button
-                        onClick={() => {
-                          setRenameValue(portfolioName);
-                          setIsRenaming(true);
-                        }}
-                        className="p-1 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition flex-shrink-0"
-                        title="Rename current portfolio"
-                      >
-                        <Edit2 className="h-3 w-3" />
-                      </button>
-                      {/* Delete button: ALWAYS enabled when portfolio exists, even if single portfolio! */}
-                      <button
-                        onClick={() => setIsConfirmDeleteOpen(true)}
-                        className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition flex-shrink-0"
-                        title="Delete current portfolio"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-1 min-w-0">
+                    <span
+                      onClick={onOpenPortfolioManager}
+                      className="text-xs text-slate-300 hover:text-white font-medium truncate max-w-[180px] cursor-pointer"
+                      title={`Active Portfolio: ${portfolioName} (Click to open manager)`}
+                    >
+                      {portfolioName}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setRenameValue(portfolioName);
+                        setIsRenaming(true);
+                      }}
+                      className="p-1 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition flex-shrink-0"
+                      title="Rename current portfolio"
+                    >
+                      <Edit2 className="h-3 w-3" />
+                    </button>
+                    <button
+                      onClick={() => setIsConfirmDeleteOpen(true)}
+                      className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition flex-shrink-0"
+                      title="Delete current portfolio"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -189,7 +252,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Market Status & Action Buttons */}
-        <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
           <div className="hidden items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-2.5 py-1.5 text-xs text-slate-300 md:flex">
             <span
               className={`h-2 w-2 rounded-full ${
@@ -207,8 +270,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             title="Load sample portfolio for instant testing"
           >
             <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Sample Demo</span>
-            <span className="sm:hidden">Demo</span>
+            <span>Sample Demo</span>
           </button>
 
           {hasData && (
@@ -233,23 +295,266 @@ export const Navbar: React.FC<NavbarProps> = ({
                 isRefreshing ? "animate-spin" : ""
               }`}
             />
-            <span className="hidden sm:inline">
-              {isRefreshing ? "Updating..." : "Refresh Live"}
-            </span>
+            <span>{isRefreshing ? "Updating..." : "Refresh Live"}</span>
           </button>
 
           <button
             onClick={onOpenUpload}
-            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-2.5 py-1.5 sm:px-3.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 transition hover:from-blue-500 hover:to-indigo-500 ring-1 ring-inset ring-white/10 flex-shrink-0"
+            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 transition hover:from-blue-500 hover:to-indigo-500 ring-1 ring-inset ring-white/10 flex-shrink-0"
           >
             <Upload className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Upload Statement</span>
-            <span className="sm:hidden">Upload</span>
+            <span>Upload Statement</span>
           </button>
         </div>
       </div>
 
-      {/* Delete Confirmation Modal Overlay */}
+      {/* 3. Mobile Slide-Over Drawer Navigation */}
+      {isDrawerOpen && (
+        <div className="fixed inset-0 z-50 flex sm:hidden">
+          {/* Backdrop overlay */}
+          <div
+            onClick={() => setIsDrawerOpen(false)}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+          />
+
+          {/* Slide-out drawer panel */}
+          <div className="relative z-10 flex h-full max-h-[100dvh] w-[82vw] max-w-xs flex-col border-r border-slate-800 bg-[#0b0f19] shadow-2xl animate-in slide-in-from-left duration-250 ease-out pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]">
+            {/* Drawer Header */}
+            <div className="flex items-center justify-between border-b border-slate-800/80 px-4 py-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 shadow-sm shadow-blue-500/20 ring-1 ring-blue-400/30">
+                  <TrendingUp className="h-4 w-4 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white tracking-tight">Finvyo</h2>
+                  <p className="text-[11px] text-slate-400">Your wealth. In view.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsDrawerOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Scrollable Drawer Body */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+              {/* Active Portfolio Card */}
+              <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-3 space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Active Portfolio</span>
+                  {portfolios.length > 0 && (
+                    <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[10px] font-bold text-blue-300">
+                      {portfolios.length} stored
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 min-w-0">
+                  <FolderOpen className="h-4 w-4 text-blue-400 flex-shrink-0" />
+                  <span className="text-sm font-bold text-white truncate">{portfolioName}</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 pt-1.5 border-t border-slate-800/80">
+                  <button
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      onOpenPortfolioManager();
+                    }}
+                    className="flex-1 rounded-lg bg-slate-800 hover:bg-slate-700 py-1.5 text-center text-xs font-semibold text-slate-200 transition"
+                  >
+                    Switch Portfolio
+                  </button>
+                  {hasData && currentPortfolioId && (
+                    <>
+                      <button
+                        onClick={() => {
+                          setIsDrawerOpen(false);
+                          setRenameValue(portfolioName);
+                          setIsRenaming(true);
+                        }}
+                        className="rounded-lg bg-slate-800 hover:bg-slate-700 p-1.5 text-slate-400 hover:text-white transition"
+                        title="Rename active portfolio"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsDrawerOpen(false);
+                          setIsConfirmDeleteOpen(true);
+                        }}
+                        className="rounded-lg bg-slate-800 hover:bg-rose-500/20 p-1.5 text-slate-400 hover:text-rose-400 transition"
+                        title="Delete active portfolio"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Navigation Tabs (Overview, Holdings, etc.) */}
+              <div className="space-y-1.5">
+                <span className="px-1 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+                  Dashboard Views
+                </span>
+                <div className="space-y-1">
+                  {tabs?.map((tab) => {
+                    const Icon = tab.icon;
+                    const isActive = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => {
+                          onSelectTab?.(tab.id);
+                          setIsDrawerOpen(false);
+                        }}
+                        className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-xs font-semibold transition ${
+                          isActive
+                            ? "bg-blue-600/20 text-blue-400 border border-blue-500/30 shadow-sm"
+                            : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Icon className={`h-4 w-4 ${isActive ? "text-blue-400" : "text-slate-400"}`} />
+                          <span>{tab.label}</span>
+                        </div>
+                        {isActive && (
+                          <span className="h-2 w-2 rounded-full bg-blue-400 shadow-sm shadow-blue-400" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Quick Actions in Drawer */}
+              <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
+                <span className="px-1 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+                  Actions
+                </span>
+                <div className="space-y-1.5">
+                  <button
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      onOpenUpload();
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3.5 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 active:opacity-90 transition"
+                  >
+                    <Upload className="h-4 w-4" />
+                    <span>Upload Statement (.xlsx / .csv)</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      onRefreshPrices();
+                    }}
+                    disabled={isRefreshing}
+                    className="flex w-full items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-900 transition"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <RefreshCw className={`h-4 w-4 text-blue-400 ${isRefreshing ? "animate-spin" : ""}`} />
+                      <span>{isRefreshing ? "Updating Live Quotes..." : "Refresh Live Quotes"}</span>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      onLoadDemo();
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-900 transition"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Sparkles className="h-4 w-4 text-amber-400" />
+                      <span>Load Sample Demo Portfolio</span>
+                    </div>
+                  </button>
+
+                  {hasData && (
+                    <button
+                      onClick={() => {
+                        setIsDrawerOpen(false);
+                        onExportCsv();
+                      }}
+                      className="flex w-full items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-900 transition"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Download className="h-4 w-4 text-slate-400" />
+                        <span>Export Transactions to CSV</span>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Drawer Footer: Market Hours Status */}
+            <div className="border-t border-slate-800 px-4 py-3 bg-slate-950/80">
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    marketStatus.isOpen
+                      ? "bg-emerald-400 animate-pulse shadow-sm shadow-emerald-400"
+                      : "bg-slate-500"
+                  }`}
+                />
+                <span>{marketStatus.label}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Rename Portfolio Modal Dialog */}
+      {isRenaming && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-sm rounded-2xl border border-blue-500/30 bg-slate-950 p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Edit2 className="h-4 w-4 text-blue-400" />
+                <h3 className="text-sm font-bold text-white">Rename Portfolio</h3>
+              </div>
+              <button
+                onClick={() => setIsRenaming(false)}
+                className="p-1 text-slate-400 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveRename} className="space-y-4">
+              <input
+                type="text"
+                autoFocus
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                placeholder="Enter portfolio name..."
+                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRenaming(false)}
+                  className="rounded-lg px-3.5 py-2 text-xs font-medium text-slate-400 hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-500 shadow-md shadow-blue-600/30"
+                >
+                  Save Name
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Delete Confirmation Modal Overlay */}
       {isConfirmDeleteOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6 backdrop-blur-md animate-in fade-in duration-150">
           <div className="w-full max-w-md rounded-2xl border border-rose-500/30 bg-slate-950 p-6 shadow-2xl space-y-4">
