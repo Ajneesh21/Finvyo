@@ -96,14 +96,63 @@ export function formatPercent(
   })}%`;
 }
 
+export function parseDateSafe(
+  input: string | Date | number | undefined | null
+): Date | null {
+  if (!input) return null;
+  if (input instanceof Date) {
+    return isNaN(input.getTime()) ? null : input;
+  }
+  if (typeof input === "number") {
+    const d = new Date(input);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+
+    // 1. If it's a date-only string like YYYY-MM-DD
+    const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (dateOnlyMatch) {
+      const y = parseInt(dateOnlyMatch[1], 10);
+      const m = parseInt(dateOnlyMatch[2], 10) - 1;
+      const d = parseInt(dateOnlyMatch[3], 10);
+      const res = new Date(y, m, d);
+      if (!isNaN(res.getTime())) return res;
+    }
+
+    // 2. Normalize spaces to 'T' for ISO strings like "2024-05-12 10:20:00"
+    const normalized = trimmed.includes(" ") ? trimmed.replace(" ", "T") : trimmed;
+    try {
+      const parsedIso = parseISO(normalized);
+      if (!isNaN(parsedIso.getTime())) return parsedIso;
+    } catch {}
+
+    // 3. Fallback to new Date(...) constructor
+    try {
+      const d = new Date(trimmed);
+      if (!isNaN(d.getTime())) return d;
+    } catch {}
+
+    // 4. Safari slash replacement for dates like "2024-05-12" or "2024/05/12"
+    try {
+      const slash = trimmed.replace(/-/g, "/");
+      const d = new Date(slash);
+      if (!isNaN(d.getTime())) return d;
+    } catch {}
+  }
+  return null;
+}
+
 export function formatDate(
-  dateStr: string | Date | undefined,
+  dateStr: string | Date | number | undefined | null,
   dateFormat = "MMM dd, yyyy"
 ): string {
   if (!dateStr) return "-";
+  const parsed = parseDateSafe(dateStr);
+  if (!parsed) return String(dateStr);
   try {
-    const d = typeof dateStr === "string" ? parseISO(dateStr) : dateStr;
-    return format(d, dateFormat);
+    return format(parsed, dateFormat);
   } catch {
     return String(dateStr);
   }

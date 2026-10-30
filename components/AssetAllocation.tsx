@@ -87,8 +87,8 @@ const AssetAllocationInner: React.FC<AssetAllocationProps> = ({
           </span>
         </div>
 
-        <div className="h-56 w-full">
-          <ResponsiveContainer width="100%" height="100%">
+        <div className="h-56 w-full min-w-0 relative">
+          <ResponsiveContainer width="100%" height="100%" minHeight={220}>
             <PieChart>
               <Pie
                 data={stockData}

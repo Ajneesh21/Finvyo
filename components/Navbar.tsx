@@ -90,15 +90,15 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-[#0b0f19]/90 backdrop-blur-md">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
+    <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-[#0b0f19]/90 backdrop-blur-md pt-[env(safe-area-inset-top,0px)]">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3">
         {/* Brand & Portfolio Selector */}
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 shadow-lg shadow-blue-500/20 ring-1 ring-blue-400/30">
-            <TrendingUp className="h-5 w-5 text-white" />
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <div className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 shadow-lg shadow-blue-500/20 ring-1 ring-blue-400/30 flex-shrink-0">
+            <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
           </div>
 
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2.5">
               <h1 className="text-base font-bold tracking-tight text-white sm:text-lg">
                 Fin<span className="text-blue-400">vyo</span>
@@ -109,10 +109,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
 
             {/* Select Portfolio Button & Current Portfolio Actions */}
-            <div className="flex items-center gap-2 mt-0.5">
+            <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5">
               <button
                 onClick={onOpenPortfolioManager}
-                className="flex items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-800/80 px-2 py-1 text-xs font-medium text-slate-200 transition hover:bg-slate-700 hover:border-slate-600 hover:text-white group shadow-sm"
+                className="flex items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-800/80 px-2 py-1 text-xs font-medium text-slate-200 transition hover:bg-slate-700 hover:border-slate-600 hover:text-white group shadow-sm flex-shrink-0"
                 title="Open Select Portfolio window to view uploaded statements and timestamps"
               >
                 <FolderOpen className="h-3.5 w-3.5 text-blue-400 group-hover:text-blue-300 flex-shrink-0" />
@@ -126,7 +126,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
 
               {hasData && currentPortfolioId && (
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 min-w-0">
                   <span className="text-slate-600">/</span>
                   {isRenaming ? (
                     <form onSubmit={handleSaveRename} className="flex items-center gap-1">
@@ -135,7 +135,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         autoFocus
                         value={renameValue}
                         onChange={(e) => setRenameValue(e.target.value)}
-                        className="rounded border border-blue-500 bg-slate-950 px-1.5 py-0.5 text-xs text-white focus:outline-none w-24 sm:w-auto"
+                        className="rounded border border-blue-500 bg-slate-950 px-1.5 py-0.5 text-xs text-white focus:outline-none w-20 sm:w-auto"
                       />
                       <button
                         type="submit"
@@ -154,10 +154,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </button>
                     </form>
                   ) : (
-                    <div className="flex items-center gap-0.5 sm:gap-1">
+                    <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
                       <span
                         onClick={onOpenPortfolioManager}
-                        className="text-xs text-slate-300 hover:text-white font-medium truncate max-w-[75px] sm:max-w-[180px] cursor-pointer"
+                        className="text-xs text-slate-300 hover:text-white font-medium truncate max-w-[65px] xs:max-w-[100px] sm:max-w-[180px] cursor-pointer"
                         title={`Active Portfolio: ${portfolioName} (Click to open manager)`}
                       >
                         {portfolioName}
@@ -167,7 +167,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                           setRenameValue(portfolioName);
                           setIsRenaming(true);
                         }}
-                        className="p-1 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition"
+                        className="p-1 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition flex-shrink-0"
                         title="Rename current portfolio"
                       >
                         <Edit2 className="h-3 w-3" />
@@ -175,7 +175,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {/* Delete button: ALWAYS enabled when portfolio exists, even if single portfolio! */}
                       <button
                         onClick={() => setIsConfirmDeleteOpen(true)}
-                        className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                        className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition flex-shrink-0"
                         title="Delete current portfolio"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -189,7 +189,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Market Status & Action Buttons */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
           <div className="hidden items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-2.5 py-1.5 text-xs text-slate-300 md:flex">
             <span
               className={`h-2 w-2 rounded-full ${

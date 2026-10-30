@@ -6,15 +6,37 @@ import { usePortfolio } from "@/lib/usePortfolio";
 import { Navbar } from "@/components/Navbar";
 import { PdfUploader } from "@/components/PdfUploader";
 import { DashboardOverview } from "@/components/DashboardOverview";
-import { PerformanceChart } from "@/components/PerformanceChart";
 import { BenchmarkComparison } from "@/components/BenchmarkComparison";
 import { HoldingsTable } from "@/components/HoldingsTable";
-import { AssetAllocation } from "@/components/AssetAllocation";
 import { TransactionLedger } from "@/components/TransactionLedger";
 import { MetricsDetail } from "@/components/MetricsDetail";
 import dynamic from "next/dynamic";
 import { EditTransactionModal } from "@/components/EditTransactionModal";
 import { PortfolioManagerModal } from "@/components/PortfolioManagerModal";
+
+const PerformanceChart = dynamic(
+  () => import("@/components/PerformanceChart").then((m) => m.PerformanceChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-64 sm:h-80 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/60">
+        <div className="h-7 w-7 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+      </div>
+    ),
+  }
+);
+
+const AssetAllocation = dynamic(
+  () => import("@/components/AssetAllocation").then((m) => m.AssetAllocation),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-64 sm:h-80 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/60">
+        <div className="h-7 w-7 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+      </div>
+    ),
+  }
+);
 
 const DcfCalculator = dynamic(
   () => import("@/components/DcfCalculator").then((m) => m.DcfCalculator),
@@ -92,7 +114,7 @@ export default function Home() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0b0f19] text-slate-100 flex flex-col">
+    <div className="min-h-screen min-h-[100dvh] bg-[#0b0f19] text-slate-100 flex flex-col">
       {/* Top Navigation Bar with Portfolio Switcher */}
       <Navbar
         onOpenUpload={() => setIsUploadOpen(true)}
@@ -112,7 +134,7 @@ export default function Home() {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
         {/* Tab Navigation Bar */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2 overflow-x-auto no-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-2 overflow-x-auto no-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0 touch-pan-x">
           <div className="flex items-center gap-1.5 sm:gap-1">
             {tabs.map((tab) => {
               const Icon = tab.icon;
