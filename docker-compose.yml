@@ -52,7 +52,7 @@ services:
       - POSTGRES_USER=finvyo
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-finvyo_db_pass}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U finvyo -d finvyo"]
       interval: 5s
