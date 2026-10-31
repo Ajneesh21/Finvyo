@@ -16,6 +16,7 @@ import {
 } from "../lib/historical-store";
 import { getStockQuote } from "../lib/stock-api";
 import { savePortfolio } from "../lib/storage";
+import { signAccessToken } from "../lib/auth";
 import { GET as getPortfoliosApi } from "../app/api/portfolios/route";
 import { NextRequest } from "next/server";
 
@@ -839,13 +840,21 @@ describe("Server-Side Pagination API (/api/portfolios)", () => {
         realizedTrades,
       } as any,
     }, "test-user-id-1");
+
+    const token = await signAccessToken({
+      userId: "test-user-id-1",
+      username: "tester",
+      email: "tester@example.com",
+      storageFolderKey: "tester_12345678",
+      role: "user",
+    });
+    authHeaders = {
+      cookie: `finvyo_token=${token}`,
+      authorization: `Bearer ${token}`,
+    };
   });
 
-  const authHeaders = {
-    "x-user-id": "test-user-id-1",
-    "x-user-name": "tester",
-    "x-user-folder": "tester_12345678",
-  };
+  let authHeaders: Record<string, string> = {};
 
   it("should paginate transactions on-demand from the server", async () => {
     // Request page 1 with pageSize=10

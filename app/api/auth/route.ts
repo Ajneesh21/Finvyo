@@ -6,6 +6,7 @@ import {
   verifyToken,
   hashPassword,
   verifyPassword,
+  safeTimingCompare,
   generateStorageFolderKey,
   getAuthUserFromRequest,
   ACCESS_TOKEN_COOKIE,
@@ -15,6 +16,7 @@ import {
 import { query } from "@/lib/db";
 import { getUserDirectory } from "@/lib/user-storage";
 import { savePortfolio } from "@/lib/storage";
+import { checkRateLimit, getClientIp, resetRateLimit } from "@/lib/rate-limiter";
 
 // POST /api/auth — Login or Register
 export async function POST(req: NextRequest) {
@@ -26,6 +28,24 @@ export async function POST(req: NextRequest) {
     // Action 1: Registration
     // ----------------------------------------------------
     if (action === "register") {
+      const ip = getClientIp(req);
+      const regRateCheck = await checkRateLimit(`auth:register:${ip}`, {
+        maxRequests: 5,
+        windowSeconds: 3600, // max 5 registrations per hour per IP
+      });
+      if (!regRateCheck.allowed) {
+        return NextResponse.json(
+          {
+            error: "Too many accounts created from this IP. Please try again later.",
+            retryAfter: regRateCheck.resetInSeconds,
+          },
+          {
+            status: 429,
+            headers: { "Retry-After": String(regRateCheck.resetInSeconds) },
+          }
+        );
+      }
+
       const username = String(body.username || "").trim();
       const email = String(body.email || "").trim().toLowerCase();
       const password = String(body.password || "");
@@ -131,6 +151,28 @@ export async function POST(req: NextRequest) {
     // ----------------------------------------------------
     // Action 2: Login
     // ----------------------------------------------------
+    const ip = getClientIp(req);
+    const loginRateKey = `auth:login:${ip}`;
+    const loginRateCheck = await checkRateLimit(loginRateKey, {
+      maxRequests: 5,
+      windowSeconds: 900, // 5 attempts per 15 minutes per IP
+    });
+
+    if (!loginRateCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: "Too many failed login attempts. Please wait 15 minutes before trying again.",
+          retryAfter: loginRateCheck.resetInSeconds,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(loginRateCheck.resetInSeconds),
+          },
+        }
+      );
+    }
+
     const identifier = String(body.identifier || body.username || body.email || "").trim();
     const password = String(body.password || "");
 
@@ -155,7 +197,7 @@ export async function POST(req: NextRequest) {
     }
 
     // If no user found by identifier, check if there's a legacy admin password configured
-    if (!userRow && process.env.ADMIN_PASSWORD && password === process.env.ADMIN_PASSWORD) {
+    if (!userRow && process.env.ADMIN_PASSWORD && safeTimingCompare(password, process.env.ADMIN_PASSWORD)) {
       // Find or create default admin account in PostgreSQL
       let adminRes = await query(
         `SELECT id, username, email, password_hash, storage_folder_key FROM users WHERE username = 'admin'`
@@ -197,6 +239,9 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       );
     }
+
+    // Reset rate limiter on successful authentication
+    await resetRateLimit(loginRateKey);
 
     const authUser: AuthUser = {
       userId: userRow.id,

@@ -42,6 +42,19 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 /**
+ * Constant-time string comparison to prevent timing attack leaks on plain secrets.
+ */
+export function safeTimingCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/**
  * Constant-time password verification to prevent timing attacks.
  */
 export async function verifyPassword(
@@ -151,18 +164,36 @@ export async function getAuthUserFromRequest(
     }
   }
 
-  // Fallback to internal header set by middleware
-  const headerUserId = req.headers.get("x-user-id");
-  const headerUsername = req.headers.get("x-user-name");
-  const headerFolder = req.headers.get("x-user-folder");
-  if (headerUserId && headerUsername && headerFolder) {
-    return {
-      userId: headerUserId,
-      username: headerUsername,
-      email: req.headers.get("x-user-email") || "",
-      storageFolderKey: headerFolder,
-      role: "user",
-    };
+  // Check Bearer authorization header if present
+  const authHeader = req.headers.get("authorization");
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const bearerToken = authHeader.slice(7).trim();
+    const payload = await verifyToken(bearerToken);
+    if (payload && payload.userId) {
+      return {
+        userId: payload.userId,
+        username: payload.username,
+        email: payload.email,
+        storageFolderKey: payload.storageFolderKey,
+        role: payload.role,
+      };
+    }
+  }
+
+  // In automated test runner only, allow internal headers for unit test mocks
+  if (process.env.NODE_ENV === "test") {
+    const headerUserId = req.headers.get("x-user-id");
+    const headerUsername = req.headers.get("x-user-name");
+    const headerFolder = req.headers.get("x-user-folder");
+    if (headerUserId && headerUsername && headerFolder) {
+      return {
+        userId: headerUserId,
+        username: headerUsername,
+        email: req.headers.get("x-user-email") || "",
+        storageFolderKey: headerFolder,
+        role: "user",
+      };
+    }
   }
 
   return null;
