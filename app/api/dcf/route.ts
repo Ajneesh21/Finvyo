@@ -5,6 +5,7 @@ import { getCachedData, setCachedData } from "@/lib/redis";
 import { FinancialData, HistoricalYearData } from "@/lib/dcf-types";
 import { getTickerSector } from "@/lib/utils";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limiter";
+import { getAuthUserFromRequest } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,14 @@ const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 const DCF_CACHE_TTL = 3600; // 1 hour cache for fundamentals
 
 export async function GET(req: NextRequest) {
+  const user = await getAuthUserFromRequest(req);
+  if (!user) {
+    return NextResponse.json(
+      { error: "Unauthorized. Please sign in to perform DCF valuation." },
+      { status: 401 }
+    );
+  }
+
   const ip = getClientIp(req);
   const rateCheck = await checkRateLimit(`dcf:${ip}`, {
     maxRequests: 30,

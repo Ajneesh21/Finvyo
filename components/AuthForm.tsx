@@ -48,8 +48,8 @@ export function AuthForm({ initialMode = "login" }: AuthFormProps) {
         setError("Please enter a valid email address.");
         return;
       }
-      if (password.length < 6) {
-        setError("Password must be at least 6 characters.");
+      if (password.length < 8) {
+        setError("Password must be at least 8 characters.");
         return;
       }
       if (password !== confirmPassword) {
@@ -225,7 +225,7 @@ export function AuthForm({ initialMode = "login" }: AuthFormProps) {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder={mode === "register" ? "At least 6 characters" : "Enter password"}
+                  placeholder={mode === "register" ? "At least 8 characters" : "Enter password"}
                   required
                   className="w-full rounded-xl border border-slate-700 bg-slate-800/60 pl-10 pr-11 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition"
                 />

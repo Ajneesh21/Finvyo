@@ -32,6 +32,9 @@ data/
 # TypeScript build cache (regenerated on every build)
 tsconfig.tsbuildinfo
 
+# Local security documentation (not tracked or committed)
+docs/
+
 # Personal transaction data — never commit real financial statements
 Transactions*.xlsx
 Transactions*.csv

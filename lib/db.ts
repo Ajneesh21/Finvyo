@@ -11,18 +11,50 @@ export function getDatabasePool(): Pool {
       process.env.POSTGRES_URL ||
       "postgresql://finvyo:finvyo_db_pass@localhost:5432/finvyo";
 
+    // SSL should only be enabled if explicitly requested via DATABASE_SSL=true,
+    // or if the connection string explicitly requires it (sslmode=require),
+    // or for external cloud databases (e.g. AWS RDS, Supabase, Neon) - never for internal Docker/local hosts.
+    const isInternalHost =
+      connectionString.includes("localhost") ||
+      connectionString.includes("127.0.0.1") ||
+      connectionString.includes("@postgres:") ||
+      connectionString.includes("@postgres/") ||
+      connectionString.includes("@db:") ||
+      connectionString.includes("@db/");
+
+    const isExplicitSsl =
+      process.env.DATABASE_SSL === "true" ||
+      connectionString.includes("sslmode=require") ||
+      connectionString.includes("ssl=true");
+
+    const isCloudDb =
+      process.env.NODE_ENV === "production" &&
+      !isInternalHost &&
+      (connectionString.includes("amazonaws.com") ||
+        connectionString.includes("supabase.co") ||
+        connectionString.includes("render.com") ||
+        connectionString.includes("neon.tech"));
+
+    const useSsl = isExplicitSsl || isCloudDb;
+
+    let sslConfig: { rejectUnauthorized: boolean; ca?: string } | undefined = undefined;
+    if (useSsl) {
+      // Secure SSL: enforce certificate validation by default (rejectUnauthorized: true)
+      // Supports custom CA certificates via DATABASE_CA_CERT / DB_CA_CERT
+      const ca = process.env.DATABASE_CA_CERT || process.env.DB_CA_CERT;
+      const rejectUnauthorized = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== "false";
+      sslConfig = {
+        rejectUnauthorized,
+        ...(ca ? { ca } : {}),
+      };
+    }
+
     pool = new Pool({
       connectionString,
       max: 10,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
-      ssl:
-        process.env.DATABASE_SSL === "true" ||
-        (process.env.NODE_ENV === "production" &&
-          connectionString.includes("aws") &&
-          !connectionString.includes("localhost"))
-          ? { rejectUnauthorized: false }
-          : undefined,
+      ssl: sslConfig,
     });
 
     pool.on("error", (err) => {

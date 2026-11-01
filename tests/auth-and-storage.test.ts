@@ -16,6 +16,12 @@ import {
   resolveUserFilePath,
   deleteUserStorageDirectory,
 } from "../lib/user-storage";
+import { validateFileSignature } from "../lib/pdf-parser";
+import {
+  withDistributedLock,
+  blacklistToken,
+  isTokenBlacklisted,
+} from "../lib/redis";
 
 describe("Lightweight Built-In Auth & Crypto", () => {
   test("hashes passwords and verifies correct matches", async () => {
@@ -136,5 +142,120 @@ describe("User-Isolated Folder Storage & Security", () => {
     assert.equal(deleted, true, "Should return true on successful directory deletion");
     assert.equal(fs.existsSync(dir), false, "User root directory must not exist after delete");
     assert.equal(fs.existsSync(dummyFile), false, "Files inside must be completely wiped");
+  });
+});
+
+describe("File Signature & Magic-Byte Validation", () => {
+  test("accepts valid PDF magic bytes", () => {
+    const validPdf = Buffer.from("%PDF-1.7\n%some content...");
+    const result = validateFileSignature(validPdf, "statement.pdf");
+    assert.equal(result.valid, true);
+    assert.equal(result.detectedType, "pdf");
+    assert.equal(result.mimeType, "application/pdf");
+  });
+
+  test("rejects PDF file missing %PDF- header", () => {
+    const invalidPdf = Buffer.from("Hello world not a pdf");
+    const result = validateFileSignature(invalidPdf, "statement.pdf");
+    assert.equal(result.valid, false);
+    assert.match(result.error || "", /valid PDF header/);
+  });
+
+  test("accepts valid XLSX ZIP magic bytes", () => {
+    const validXlsx = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00]);
+    const result = validateFileSignature(validXlsx, "transactions.xlsx");
+    assert.equal(result.valid, true);
+    assert.equal(result.detectedType, "xlsx");
+    assert.equal(result.mimeType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  });
+
+  test("rejects XLSX missing PK ZIP header", () => {
+    const fakeXlsx = Buffer.from("Plain text content in an xlsx file");
+    const result = validateFileSignature(fakeXlsx, "transactions.xlsx");
+    assert.equal(result.valid, false);
+    assert.match(result.error || "", /valid ZIP\/OpenXML/);
+  });
+
+  test("rejects Windows PE executable disguised as any format", () => {
+    const exeBuffer = Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00]); // 'MZ'
+    const resPdf = validateFileSignature(exeBuffer, "malicious.pdf");
+    assert.equal(resPdf.valid, false);
+    assert.match(resPdf.error || "", /Windows binary/);
+
+    const resCsv = validateFileSignature(exeBuffer, "malicious.csv");
+    assert.equal(resCsv.valid, false);
+    assert.match(resCsv.error || "", /Windows binary/);
+  });
+
+  test("rejects Linux ELF binary disguised as any format", () => {
+    const elfBuffer = Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00]); // '\x7fELF'
+    const res = validateFileSignature(elfBuffer, "exploit.xlsx");
+    assert.equal(res.valid, false);
+    assert.match(res.error || "", /Linux binary/);
+  });
+
+  test("rejects CSV with binary null bytes", () => {
+    const binaryInCsv = Buffer.from("Date,Symbol,Price\x00\x00\x01\x02");
+    const res = validateFileSignature(binaryInCsv, "trades.csv");
+    assert.equal(res.valid, false);
+    assert.match(res.error || "", /binary null bytes/);
+  });
+
+  test("accepts clean CSV and TXT statements", () => {
+    const cleanCsv = Buffer.from("Date,Symbol,Type,Amount\n2026-01-01,AAPL,BUY,150.00\n");
+    const resCsv = validateFileSignature(cleanCsv, "trades.csv");
+    assert.equal(resCsv.valid, true);
+    assert.equal(resCsv.detectedType, "csv");
+
+    const cleanTxt = Buffer.from("2026-08-24 SPUR 509.8 Meta Platforms Inc\n");
+    const resTxt = validateFileSignature(cleanTxt, "activity.txt");
+    assert.equal(resTxt.valid, true);
+    assert.equal(resTxt.detectedType, "txt");
+  });
+});
+
+describe("Distributed Locking (Redlock) & Server-Side Token Blacklisting", () => {
+  test("withDistributedLock serializes concurrent critical sections safely", async () => {
+    const order: number[] = [];
+    const resource = `test-resource-${Date.now()}`;
+
+    const task1 = withDistributedLock(resource, async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      order.push(1);
+      return "result1";
+    });
+
+    const task2 = withDistributedLock(resource, async () => {
+      order.push(2);
+      return "result2";
+    });
+
+    const [r1, r2] = await Promise.all([task1, task2]);
+    assert.equal(r1, "result1");
+    assert.equal(r2, "result2");
+    assert.deepEqual(order, [1, 2], "Task 1 must complete before Task 2 enters critical section");
+  });
+
+  test("blacklists revoked tokens and prevents verification", async () => {
+    const testUser: AuthUser = {
+      userId: "revoked-usr-1",
+      username: "revokeduser",
+      email: "revoked@example.com",
+      storageFolderKey: "revoked_12345678",
+      role: "user",
+    };
+
+    const token = await signAccessToken(testUser);
+    const validPayload = await verifyToken(token);
+    assert.ok(validPayload !== null, "Token should be valid before revocation");
+
+    // Revoke token
+    await blacklistToken(token, 300);
+    const isRevoked = await isTokenBlacklisted(token);
+    assert.equal(isRevoked, true, "Token should report as revoked in blacklist");
+
+    // verifyToken should reject blacklisted token
+    const revokedPayload = await verifyToken(token);
+    assert.equal(revokedPayload, null, "verifyToken must return null for blacklisted token");
   });
 });

@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify, JWTPayload } from "jose";
 import crypto from "crypto";
 import { NextRequest } from "next/server";
+import { isTokenBlacklisted } from "./redis";
 
 export const ACCESS_TOKEN_COOKIE = "finvyo_token";
 export const REFRESH_TOKEN_COOKIE = "finvyo_refresh";
@@ -124,6 +125,9 @@ export async function verifyToken(
   token: string
 ): Promise<UserJwtPayload | null> {
   try {
+    if (await isTokenBlacklisted(token)) {
+      return null;
+    }
     const { payload } = await jwtVerify(token, getSecret());
     return payload as unknown as UserJwtPayload;
   } catch {

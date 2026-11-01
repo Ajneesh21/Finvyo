@@ -6,7 +6,6 @@ import {
   verifyToken,
   hashPassword,
   verifyPassword,
-  safeTimingCompare,
   generateStorageFolderKey,
   getAuthUserFromRequest,
   ACCESS_TOKEN_COOKIE,
@@ -17,6 +16,7 @@ import { query } from "@/lib/db";
 import { getUserDirectory, deleteUserAccount } from "@/lib/user-storage";
 import { savePortfolio } from "@/lib/storage";
 import { checkRateLimit, getClientIp, resetRateLimit } from "@/lib/rate-limiter";
+import { blacklistToken } from "@/lib/redis";
 
 // POST /api/auth — Login or Register
 export async function POST(req: NextRequest) {
@@ -68,29 +68,38 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      if (!password || password.length < 6) {
+      if (!password || password.length < 8) {
         return NextResponse.json(
-          { error: "Password must be at least 6 characters long." },
+          { error: "Password must be at least 8 characters long." },
           { status: 400 }
         );
       }
 
-      // Check if user already exists
+      const COMMON_PASSWORDS = new Set([
+        "12345678",
+        "password",
+        "password123",
+        "123456789",
+        "qwerty123",
+        "admin123",
+        "welcome123",
+      ]);
+      if (COMMON_PASSWORDS.has(password.toLowerCase())) {
+        return NextResponse.json(
+          { error: "Password is too common or easily guessable. Please choose a stronger password." },
+          { status: 400 }
+        );
+      }
+
+      // Check if user already exists (unified message prevents user/email enumeration)
       const existingUser = await query(
         `SELECT id, username, email FROM users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($2)`,
         [username, email]
       );
 
       if (existingUser.rows.length > 0) {
-        const match = existingUser.rows[0];
-        if (match.username.toLowerCase() === username.toLowerCase()) {
-          return NextResponse.json(
-            { error: "Username is already taken. Please choose another." },
-            { status: 409 }
-          );
-        }
         return NextResponse.json(
-          { error: "An account with this email already exists." },
+          { error: "An account with this username or email already exists." },
           { status: 409 }
         );
       }
@@ -196,6 +205,12 @@ export async function POST(req: NextRequest) {
 
       await deleteUserAccount(user.userId, userRow.rows[0].storage_folder_key);
 
+      // Blacklist tokens server-side
+      const accessToken = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+      const refreshToken = req.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+      if (accessToken) await blacklistToken(accessToken, 60 * 60);
+      if (refreshToken) await blacklistToken(refreshToken, 60 * 60 * 24 * 30);
+
       const response = NextResponse.json({
         success: true,
         message: "Account, portfolios, and all stored data deleted permanently.",
@@ -209,6 +224,11 @@ export async function POST(req: NextRequest) {
     // Action 3: Logout
     // ----------------------------------------------------
     if (action === "logout") {
+      const accessToken = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+      const refreshToken = req.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+      if (accessToken) await blacklistToken(accessToken, 60 * 60);
+      if (refreshToken) await blacklistToken(refreshToken, 60 * 60 * 24 * 30);
+
       const response = NextResponse.json({ success: true, message: "Logged out." });
       response.cookies.delete(ACCESS_TOKEN_COOKIE);
       response.cookies.delete(REFRESH_TOKEN_COOKIE);
@@ -228,7 +248,7 @@ export async function POST(req: NextRequest) {
     if (!loginRateCheck.allowed) {
       return NextResponse.json(
         {
-          error: "Too many failed login attempts. Please wait 15 minutes before trying again.",
+          error: "Too many failed login attempts from this IP. Please wait 15 minutes before trying again.",
           retryAfter: loginRateCheck.resetInSeconds,
         },
         {
@@ -243,52 +263,45 @@ export async function POST(req: NextRequest) {
     const identifier = String(body.identifier || body.username || body.email || "").trim();
     const password = String(body.password || "");
 
-    if (!password) {
+    if (!identifier || !password) {
       return NextResponse.json(
-        { error: "Password is required" },
+        { error: "Username/email and password are required" },
         { status: 400 }
+      );
+    }
+
+    // Per-account rate limiting to prevent distributed credential stuffing / brute-force
+    const normalizedIdentifier = identifier.toLowerCase();
+    const accountRateKey = `auth:login:account:${normalizedIdentifier}`;
+    const accountRateCheck = await checkRateLimit(accountRateKey, {
+      maxRequests: 5,
+      windowSeconds: 900, // 5 attempts per 15 minutes per account
+    });
+
+    if (!accountRateCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: "Too many failed login attempts for this account. Please wait 15 minutes before trying again.",
+          retryAfter: accountRateCheck.resetInSeconds,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(accountRateCheck.resetInSeconds),
+          },
+        }
       );
     }
 
     // Query PostgreSQL for the user
     let userRow: any = null;
-    if (identifier) {
-      const userRes = await query(
-        `SELECT id, username, email, password_hash, storage_folder_key FROM users
-         WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1)`,
-        [identifier]
-      );
-      if (userRes.rows.length > 0) {
-        userRow = userRes.rows[0];
-      }
-    }
-
-    // If no user found by identifier, check if there's a legacy admin password configured
-    if (!userRow && process.env.ADMIN_PASSWORD && safeTimingCompare(password, process.env.ADMIN_PASSWORD)) {
-      // Find or create default admin account in PostgreSQL
-      let adminRes = await query(
-        `SELECT id, username, email, password_hash, storage_folder_key FROM users WHERE username = 'admin'`
-      );
-
-      if (adminRes.rows.length === 0) {
-        const adminId = crypto.randomUUID();
-        const folderKey = generateStorageFolderKey("admin");
-        getUserDirectory(folderKey);
-        const adminHash = await hashPassword(password);
-
-        await query(
-          `INSERT INTO users (id, username, email, password_hash, storage_folder_key)
-           VALUES ($1, 'admin', 'admin@finvyo.local', $2, $3)`,
-          [adminId, adminHash, folderKey]
-        );
-
-        adminRes = await query(
-          `SELECT id, username, email, password_hash, storage_folder_key FROM users WHERE id = $1`,
-          [adminId]
-        );
-      }
-
-      userRow = adminRes.rows[0];
+    const userRes = await query(
+      `SELECT id, username, email, password_hash, storage_folder_key FROM users
+       WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1)`,
+      [identifier]
+    );
+    if (userRes.rows.length > 0) {
+      userRow = userRes.rows[0];
     }
 
     if (!userRow) {
@@ -307,8 +320,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Reset rate limiter on successful authentication
-    await resetRateLimit(loginRateKey);
+    // Reset both IP and account rate limiters on successful authentication
+    await Promise.all([
+      resetRateLimit(loginRateKey),
+      resetRateLimit(accountRateKey),
+    ]);
 
     const authUser: AuthUser = {
       userId: userRow.id,
@@ -336,8 +352,12 @@ export async function POST(req: NextRequest) {
     return response;
   } catch (err: any) {
     console.error("[Auth API] Error:", err);
+    const safeError =
+      process.env.NODE_ENV === "production"
+        ? "Authentication failed due to an unexpected error. Please try again later."
+        : `Authentication failed: ${err?.message || "Unknown error"}`;
     return NextResponse.json(
-      { error: "Authentication failed. " + (err.message || "") },
+      { error: safeError },
       { status: 500 }
     );
   }
@@ -395,7 +415,6 @@ export async function GET(req: NextRequest) {
       id: user.userId,
       username: user.username,
       email: user.email,
-      storageFolderKey: user.storageFolderKey,
       role: user.role,
       createdAt,
     },
@@ -442,6 +461,11 @@ export async function DELETE(req: NextRequest) {
 
         await deleteUserAccount(user.userId, userRow.rows[0].storage_folder_key);
 
+        const accessToken = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+        const refreshToken = req.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+        if (accessToken) await blacklistToken(accessToken, 60 * 60);
+        if (refreshToken) await blacklistToken(refreshToken, 60 * 60 * 24 * 30);
+
         const response = NextResponse.json({
           success: true,
           message: "Account and all associated files deleted permanently.",
@@ -454,6 +478,11 @@ export async function DELETE(req: NextRequest) {
   } catch (err) {
     console.error("[Auth API DELETE] Error:", err);
   }
+
+  const accessToken = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  const refreshToken = req.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+  if (accessToken) await blacklistToken(accessToken, 60 * 60);
+  if (refreshToken) await blacklistToken(refreshToken, 60 * 60 * 24 * 30);
 
   const response = NextResponse.json({ success: true, message: "Logged out." });
   response.cookies.delete(ACCESS_TOKEN_COOKIE);

@@ -8,6 +8,7 @@ import {
   parseVestedXlsxBuffer,
   safeReadWorkbook,
   validateSafeBuffer,
+  validateFileSignature,
 } from "@/lib/pdf-parser";
 import { parseVestedSpreadsheetSheets } from "@/lib/vested-sheet-parser";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limiter";
@@ -92,7 +93,27 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Pre-scan file buffer for dangerous injection or prototype pollution payloads
+    // 1. Explicitly reject Apple Numbers (.numbers) format up front
+    if (fileName.endsWith(".numbers")) {
+      return NextResponse.json(
+        {
+          error:
+            "Apple Numbers (.numbers) format is not supported. Please export and upload your statement in Excel (.xlsx), PDF (.pdf), or CSV (.csv) format.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // 2. Validate file signature / magic-bytes to prevent spoofing or binary injection
+    const sigCheck = validateFileSignature(buffer, file.name);
+    if (!sigCheck.valid) {
+      return NextResponse.json(
+        { error: sigCheck.error || "File signature validation failed." },
+        { status: 400 }
+      );
+    }
+
+    // 3. Pre-scan file buffer for dangerous injection or prototype pollution payloads
     const bufferCheck = validateSafeBuffer(buffer);
     if (!bufferCheck.safe) {
       return NextResponse.json(
@@ -109,32 +130,20 @@ export async function POST(req: NextRequest) {
         storageFolderKey: user.storageFolderKey,
         originalFilename: file.name,
         buffer,
-        mimeType: file.type || "application/octet-stream",
+        mimeType: sigCheck.mimeType || "application/octet-stream",
       }).catch((err) => {
         console.warn("[Parse PDF API] Note: Failed to archive statement to user folder:", err);
       });
     }
 
-    // 1. If Apple Numbers (.numbers) file - unsupported (osascript execution removed for security)
-    if (fileName.endsWith(".numbers")) {
-      return NextResponse.json(
-        {
-          error:
-            "Apple Numbers (.numbers) format is not supported. Please export and upload your statement in Excel (.xlsx), PDF (.pdf), or CSV (.csv) format.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // 2. If PDF (.pdf) file
-    if (fileName.endsWith(".pdf")) {
+    // 4. Process validated format
+    if (sigCheck.detectedType === "pdf") {
       const pdfData = await pdfParse(buffer);
       const result = parseVestedStatementText(pdfData.text);
       return NextResponse.json(result);
     }
 
-    // 3. If Excel file (.xlsx or .xls)
-    if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+    if (sigCheck.detectedType === "xlsx" || sigCheck.detectedType === "xls") {
       try {
         const workbook = safeReadWorkbook(buffer, { type: "buffer" });
         const sheetMap: Record<string, string> = {};
@@ -155,8 +164,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(result);
     }
 
-    // 4. If CSV file (.csv)
-    if (fileName.endsWith(".csv")) {
+    if (sigCheck.detectedType === "csv") {
       const text = buffer.toString("utf-8");
       try {
         const sheetResult = parseVestedSpreadsheetSheets({ Sheet1: text });
@@ -171,8 +179,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(result);
     }
 
-    // 5. If plain text file (.txt)
-    if (fileName.endsWith(".txt")) {
+    if (sigCheck.detectedType === "txt") {
       const text = buffer.toString("utf-8");
       const parsedTextResult = parseVestedStatementText(text);
       return NextResponse.json(parsedTextResult);

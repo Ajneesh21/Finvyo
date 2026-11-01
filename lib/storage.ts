@@ -1,7 +1,12 @@
 import fs from "fs";
 import path from "path";
 import { Transaction, PortfolioSummary } from "./types";
-import { getCachedData, setCachedData, deleteCachedData } from "./redis";
+import {
+  getCachedData,
+  setCachedData,
+  deleteCachedData,
+  withDistributedLock,
+} from "./redis";
 import { query } from "./db";
 
 export interface StoredPortfolio {
@@ -20,24 +25,9 @@ const DATA_DIR = path.join(process.cwd(), "data");
 const STORAGE_FILE = path.join(DATA_DIR, "portfolios.json");
 const REDIS_PORTFOLIO_TTL = 86400 * 30; // 30 days retention in Redis
 
-// In-process lock to serialize concurrent read-modify-write operations
-let lockPromise: Promise<unknown> = Promise.resolve();
-
-async function withLock<T>(fn: () => Promise<T>): Promise<T> {
-  let release: () => void;
-  const nextLock = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const currentLock = lockPromise;
-  lockPromise = currentLock.then(() => nextLock);
-
-  await currentLock;
-  try {
-    return await fn();
-  } finally {
-    release!();
-  }
-}
+// ---------------------------------------------------------------------------
+// Multi-instance distributed locking backed by Redis (Redlock pattern)
+// ---------------------------------------------------------------------------
 
 /**
  * Fetch all portfolios belonging to a specific user.
@@ -120,7 +110,7 @@ export async function savePortfolio(
     userId = "default-user";
   }
 
-  return withLock(async () => {
+  return withDistributedLock(`portfolio:${userId}`, async () => {
     const redisKey = `portfolios:user:${userId}`;
 
     // If this portfolio is marked default, unset default on other portfolios
@@ -195,7 +185,7 @@ export async function deletePortfolio(
 ): Promise<boolean> {
   if (!userId) return false;
 
-  return withLock(async () => {
+  return withDistributedLock(`portfolio:${userId}`, async () => {
     const redisKey = `portfolios:user:${userId}`;
 
     try {
@@ -227,7 +217,7 @@ export async function updatePortfolioSummary(
 ): Promise<void> {
   if (!userId) return;
 
-  return withLock(async () => {
+  return withDistributedLock(`portfolio:${userId}`, async () => {
     const now = new Date().toISOString();
 
     try {

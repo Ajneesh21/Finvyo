@@ -50,6 +50,167 @@ interface ExtractedHolding {
   costBasis?: number;
 }
 
+export type ValidatedFileType = "pdf" | "xlsx" | "xls" | "csv" | "txt";
+
+export interface FileSignatureValidation {
+  valid: boolean;
+  detectedType?: ValidatedFileType;
+  mimeType?: string;
+  error?: string;
+}
+
+/**
+ * Validates the file header/magic-bytes against the declared filename
+ * to prevent MIME spoofing, executable uploads, or file extension tricks.
+ */
+export function validateFileSignature(
+  buffer: Buffer,
+  declaredFilename: string
+): FileSignatureValidation {
+  if (!buffer || buffer.length === 0) {
+    return { valid: false, error: "Empty file payload." };
+  }
+
+  const lowerName = declaredFilename.toLowerCase().trim();
+
+  // 1. Detect and reject Windows executables / DLLs (MZ signature: 0x4D, 0x5A)
+  if (buffer.length >= 2 && buffer[0] === 0x4d && buffer[1] === 0x5a) {
+    return {
+      valid: false,
+      error: "File rejected: Executable Windows binary content (PE/MZ) is not permitted.",
+    };
+  }
+
+  // 2. Detect and reject Linux ELF binaries (\x7fELF: 0x7F, 0x45, 0x4C, 0x46)
+  if (
+    buffer.length >= 4 &&
+    buffer[0] === 0x7f &&
+    buffer[1] === 0x45 &&
+    buffer[2] === 0x4c &&
+    buffer[3] === 0x46
+  ) {
+    return {
+      valid: false,
+      error: "File rejected: Executable Linux binary content (ELF) is not permitted.",
+    };
+  }
+
+  // 3. Detect and reject Mach-O binaries / Java bytecode
+  if (buffer.length >= 4) {
+    const magic32 = buffer.readUInt32BE(0);
+    const magic32LE = buffer.readUInt32LE(0);
+    if (
+      magic32 === 0xfeedface ||
+      magic32 === 0xfeedfacf ||
+      magic32 === 0xcafebabe ||
+      magic32LE === 0xfeedface ||
+      magic32LE === 0xfeedfacf
+    ) {
+      return {
+        valid: false,
+        error: "File rejected: Executable binary/bytecode content is not permitted.",
+      };
+    }
+  }
+
+  // 4. Validate PDF magic signature: %PDF- (0x25 0x50 0x44 0x46 0x2D)
+  if (lowerName.endsWith(".pdf")) {
+    const searchSlice = buffer.subarray(0, Math.min(buffer.length, 1024));
+    const headerIndex = searchSlice.indexOf(Buffer.from("%PDF-"));
+    if (headerIndex === -1) {
+      return {
+        valid: false,
+        error: "Invalid file signature: File has .pdf extension but lacks a valid PDF header (%PDF-).",
+      };
+    }
+    return {
+      valid: true,
+      detectedType: "pdf",
+      mimeType: "application/pdf",
+    };
+  }
+
+  // 5. Validate XLSX (OpenXML ZIP signature: PK\x03\x04, PK\x05\x06, PK\x07\x08)
+  if (lowerName.endsWith(".xlsx")) {
+    const isZip =
+      buffer.length >= 4 &&
+      buffer[0] === 0x50 &&
+      buffer[1] === 0x4b &&
+      (buffer[2] === 0x03 || buffer[2] === 0x05 || buffer[2] === 0x07) &&
+      (buffer[3] === 0x04 || buffer[3] === 0x06 || buffer[3] === 0x08);
+
+    if (!isZip) {
+      return {
+        valid: false,
+        error: "Invalid file signature: File has .xlsx extension but lacks a valid ZIP/OpenXML package header.",
+      };
+    }
+    return {
+      valid: true,
+      detectedType: "xlsx",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    };
+  }
+
+  // 6. Validate XLS (Legacy OLE2 / BIFF8 signature or embedded ZIP)
+  if (lowerName.endsWith(".xls")) {
+    const isOle2 =
+      buffer.length >= 8 &&
+      buffer[0] === 0xd0 &&
+      buffer[1] === 0xcf &&
+      buffer[2] === 0x11 &&
+      buffer[3] === 0xe0 &&
+      buffer[4] === 0xa1 &&
+      buffer[5] === 0xb1 &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0xe1;
+
+    const isZip =
+      buffer.length >= 4 &&
+      buffer[0] === 0x50 &&
+      buffer[1] === 0x4b;
+
+    if (!isOle2 && !isZip) {
+      return {
+        valid: false,
+        error: "Invalid file signature: File has .xls extension but lacks a valid Excel binary header.",
+      };
+    }
+    return {
+      valid: true,
+      detectedType: "xls",
+      mimeType: isZip
+        ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        : "application/vnd.ms-excel",
+    };
+  }
+
+  // 7. Validate CSV & TXT (must be clean text without null bytes)
+  if (lowerName.endsWith(".csv") || lowerName.endsWith(".txt")) {
+    const sampleSize = Math.min(buffer.length, 1024);
+    for (let i = 0; i < sampleSize; i++) {
+      if (buffer[i] === 0x00) {
+        return {
+          valid: false,
+          error: "Invalid file format: Plain text / CSV files cannot contain binary null bytes.",
+        };
+      }
+    }
+
+    const type = lowerName.endsWith(".csv") ? "csv" : "txt";
+    return {
+      valid: true,
+      detectedType: type,
+      mimeType: type === "csv" ? "text/csv" : "text/plain",
+    };
+  }
+
+  return {
+    valid: false,
+    error: "Unsupported file extension. Allowed formats: .pdf, .xlsx, .xls, .csv, .txt",
+  };
+}
+
 /**
  * Scans a buffer for potential Prototype Pollution signatures or malicious XML payloads
  * before passing to spreadsheet/PDF parsers.

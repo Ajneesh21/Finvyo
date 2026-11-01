@@ -34,7 +34,6 @@ interface ProfileUser {
   id: string;
   username: string;
   email: string;
-  storageFolderKey: string;
   role: string;
   createdAt: string | null;
 }
@@ -127,9 +126,9 @@ export default function ProfilePage() {
     fetchProfileData();
   }, []);
 
-  const handleCopyStorageKey = () => {
-    if (user?.storageFolderKey) {
-      navigator.clipboard.writeText(user.storageFolderKey);
+  const handleCopyAccountId = () => {
+    if (user?.id) {
+      navigator.clipboard.writeText(user.id);
       setCopiedKey(true);
       setTimeout(() => setCopiedKey(false), 2000);
     }
@@ -313,11 +312,12 @@ export default function ProfilePage() {
                   <div className="flex items-center justify-between text-xs text-slate-400">
                     <span className="flex items-center gap-1.5 font-medium">
                       <HardDrive className="h-3.5 w-3.5 text-blue-400" />
-                      Isolated Storage Key
+                      Isolated Sandbox
                     </span>
                     <button
-                      onClick={handleCopyStorageKey}
+                      onClick={handleCopyAccountId}
                       className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-1 transition"
+                      title="Copy Account ID"
                     >
                       {copiedKey ? (
                         <>
@@ -327,13 +327,13 @@ export default function ProfilePage() {
                       ) : (
                         <>
                           <Copy className="h-3 w-3" />
-                          <span>Copy</span>
+                          <span>Copy ID</span>
                         </>
                       )}
                     </button>
                   </div>
                   <div className="font-mono text-xs font-semibold text-slate-200 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800 truncate max-w-[240px]">
-                    {user?.storageFolderKey || "sandbox_default"}
+                    {user?.id ? `id:${user.id.slice(0, 13)}...` : "Active Sandbox"}
                   </div>
                 </div>
               </div>

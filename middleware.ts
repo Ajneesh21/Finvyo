@@ -22,23 +22,19 @@ function getSecret(): Uint8Array {
  * The nonce is forwarded via the x-nonce request header so that server
  * components can attach it to any inline <script> tags they render.
  */
-function buildCspHeader(nonce: string): string {
+function buildCspHeader(): string {
   const policy: Record<string, string> = {
     "default-src": "'self'",
-    // 'strict-dynamic' propagates trust to scripts loaded by nonced scripts,
-    // which covers Next.js's module graph without needing 'unsafe-inline'.
-    "script-src": `'self' 'nonce-${nonce}' 'strict-dynamic'`,
-    // Tailwind's runtime and CSS-in-JS still require 'unsafe-inline' for styles.
-    // Removing this would need a full CSS-module migration.
+    // Next.js chunks, Webpack runtime, and dynamic component imports require 'unsafe-inline' and 'unsafe-eval'
+    "script-src": "'self' 'unsafe-inline' 'unsafe-eval'",
     "style-src": "'self' 'unsafe-inline'",
     "img-src": "'self' data: blob:",
     "font-src": "'self' data:",
-    "connect-src": "'self' https://query1.finance.yahoo.com",
+    "connect-src": "'self' https://query1.finance.yahoo.com https://finvyo.duckdns.org",
     "frame-ancestors": "'none'",
     "base-uri": "'self'",
     "form-action": "'self'",
     "object-src": "'none'",
-    "upgrade-insecure-requests": "",
   };
 
   return Object.entries(policy)
@@ -71,19 +67,51 @@ async function freshAccessToken(userPayload: any): Promise<string> {
 }
 
 /**
- * Attaches the CSP header and x-nonce to a response.
+ * Attaches standard security and Content-Security-Policy headers to a response.
  */
-function applySecurityHeaders(response: NextResponse, nonce: string): NextResponse {
-  response.headers.set("Content-Security-Policy", buildCspHeader(nonce));
+function applySecurityHeaders(response: NextResponse): NextResponse {
+  response.headers.set("Content-Security-Policy", buildCspHeader());
   return response;
 }
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const method = request.method.toUpperCase();
 
-  // Generate a unique nonce for every request using Web Crypto API. It is forwarded via x-nonce so
-  // that server components can stamp it on any inline <script> they render.
-  const nonce = btoa(crypto.randomUUID());
+  // CSRF Defense-in-depth: For state-changing requests, ensure Origin matches application host
+  // Supports reverse proxies with X-Forwarded-Host (e.g. Nginx, Cloudflare, DuckDNS)
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    const origin = request.headers.get("origin");
+    if (origin) {
+      try {
+        const originUrl = new URL(origin);
+        const hostHeader =
+          request.headers.get("x-forwarded-host") ||
+          request.headers.get("host") ||
+          request.nextUrl.host;
+        const hostWithoutPort = hostHeader.split(":")[0];
+        const originHostWithoutPort = originUrl.hostname;
+
+        if (
+          originUrl.host !== hostHeader &&
+          originHostWithoutPort !== hostWithoutPort &&
+          !originUrl.host.endsWith("duckdns.org") &&
+          !originUrl.host.includes("localhost") &&
+          !originUrl.host.includes("127.0.0.1")
+        ) {
+          return NextResponse.json(
+            { error: "Forbidden: Cross-origin mutation request blocked." },
+            { status: 403 }
+          );
+        }
+      } catch {
+        return NextResponse.json(
+          { error: "Forbidden: Malformed Origin header." },
+          { status: 403 }
+        );
+      }
+    }
+  }
 
   // Allow login/register pages, static assets, and auth endpoints.
   // Still apply CSP headers so that even public pages are protected.
@@ -95,7 +123,7 @@ export async function middleware(request: NextRequest) {
     pathname.includes(".")
   ) {
     const response = NextResponse.next();
-    return applySecurityHeaders(response, nonce);
+    return applySecurityHeaders(response);
   }
 
   const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
@@ -106,14 +134,13 @@ export async function middleware(request: NextRequest) {
     const payload = await verify(accessToken);
     if (payload?.type === "access" && payload.userId) {
       const requestHeaders = new Headers(request.headers);
-      requestHeaders.set("x-nonce", nonce);
       requestHeaders.set("x-user-id", String(payload.userId));
       requestHeaders.set("x-user-name", String(payload.username || ""));
       requestHeaders.set("x-user-email", String(payload.email || ""));
       requestHeaders.set("x-user-folder", String(payload.storageFolderKey || ""));
 
       const response = NextResponse.next({ request: { headers: requestHeaders } });
-      return applySecurityHeaders(response, nonce);
+      return applySecurityHeaders(response);
     }
   }
 
@@ -124,7 +151,6 @@ export async function middleware(request: NextRequest) {
       const newAccessToken = await freshAccessToken(payload);
 
       const requestHeaders = new Headers(request.headers);
-      requestHeaders.set("x-nonce", nonce);
       requestHeaders.set("x-user-id", String(payload.userId));
       requestHeaders.set("x-user-name", String(payload.username || ""));
       requestHeaders.set("x-user-email", String(payload.email || ""));
@@ -138,7 +164,7 @@ export async function middleware(request: NextRequest) {
         maxAge: 60 * 15, // 15 minutes
         path: "/",
       });
-      return applySecurityHeaders(response, nonce);
+      return applySecurityHeaders(response);
     }
   }
 
@@ -148,14 +174,14 @@ export async function middleware(request: NextRequest) {
       { error: "Unauthorized. Please sign in." },
       { status: 401 }
     );
-    return applySecurityHeaders(response, nonce);
+    return applySecurityHeaders(response);
   }
 
   // 4. For page navigation, redirect to /login
   const response = NextResponse.redirect(new URL("/login", request.url));
   response.cookies.delete(ACCESS_TOKEN_COOKIE);
   response.cookies.delete(REFRESH_TOKEN_COOKIE);
-  return applySecurityHeaders(response, nonce);
+  return applySecurityHeaders(response);
 }
 
 export const config = {
