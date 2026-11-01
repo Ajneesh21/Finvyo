@@ -42,11 +42,15 @@ export async function GET(req: NextRequest) {
     const sort = searchParams.get("sort") || "desc";
     const taxType = searchParams.get("taxType");
 
-    // If requesting a specific portfolio's paginated resources
-    if (id && pageStr) {
+    // If requesting a specific portfolio
+    if (id) {
       const portfolio = await getPortfolioById(id, user.userId);
       if (!portfolio) {
         return NextResponse.json({ error: "Portfolio not found" }, { status: 404 });
+      }
+
+      if (!pageStr) {
+        return NextResponse.json({ portfolio });
       }
 
       const page = Math.max(1, parseInt(pageStr, 10));
@@ -311,7 +315,10 @@ export async function DELETE(req: NextRequest) {
     await deletePortfolioFiles(id, user.userId, user.storageFolderKey);
 
     const success = await deletePortfolio(id, user.userId);
-    return NextResponse.json({ success, id });
+    if (!success) {
+      return NextResponse.json({ error: "Portfolio not found" }, { status: 404 });
+    }
+    return NextResponse.json({ success: true, id });
   } catch (err: unknown) {
     console.error("[Portfolios API DELETE] Error:", err);
     return NextResponse.json(
