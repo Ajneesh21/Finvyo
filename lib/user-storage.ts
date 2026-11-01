@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { query } from "./db";
+import { deleteCachedData } from "./redis";
 
 export interface StoredUserFile {
   id: string;
@@ -246,4 +247,141 @@ export async function deleteUserFile(
   ]);
 
   return true;
+}
+
+/**
+ * Completely removes a user's isolated storage folder from disk.
+ * Strictly verifies directory isolation to avoid traversal.
+ */
+export function deleteUserStorageDirectory(storageFolderKey: string): boolean {
+  if (!storageFolderKey || !/^[a-zA-Z0-9_-]+$/.test(storageFolderKey)) {
+    throw new Error("Invalid storage folder key");
+  }
+
+  const baseDir = path.resolve(USERS_STORAGE_DIR);
+  const targetDir = path.resolve(baseDir, storageFolderKey);
+
+  if (!targetDir.startsWith(baseDir + path.sep)) {
+    throw new Error("Security violation: Target directory outside users storage root");
+  }
+
+  if (fs.existsSync(targetDir)) {
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Associates an unassigned user file with a newly created portfolio.
+ */
+export async function linkFilesToPortfolio(
+  userId: string,
+  portfolioId: string,
+  sourceFileName: string
+): Promise<void> {
+  try {
+    await query(
+      `UPDATE user_files 
+       SET portfolio_id = $1 
+       WHERE user_id = $2 AND (portfolio_id IS NULL OR portfolio_id = '') AND original_filename = $3`,
+      [portfolioId, userId, sourceFileName]
+    );
+  } catch (err) {
+    console.error("[UserStorage] Error linking file to portfolio:", err);
+  }
+}
+
+/**
+ * Deletes all files linked to a specific portfolio from disk and database.
+ */
+export async function deletePortfolioFiles(
+  portfolioId: string,
+  userId: string,
+  storageFolderKey: string
+): Promise<number> {
+  let deletedCount = 0;
+  try {
+    // 1. Direct portfolio_id matches
+    const res = await query(
+      `SELECT id, stored_relative_path FROM user_files WHERE portfolio_id = $1 AND user_id = $2`,
+      [portfolioId, userId]
+    );
+
+    for (const row of res.rows) {
+      try {
+        const absolutePath = resolveUserFilePath(storageFolderKey, row.stored_relative_path);
+        if (fs.existsSync(absolutePath)) {
+          fs.unlinkSync(absolutePath);
+          deletedCount++;
+        }
+      } catch (fileErr) {
+        console.error("[UserStorage] Failed to unlink file:", fileErr);
+      }
+    }
+
+    // 2. Also check if the portfolio has a source_file_name that is unassigned in user_files
+    const portRes = await query(
+      `SELECT source_file_name FROM portfolios WHERE id = $1 AND user_id = $2`,
+      [portfolioId, userId]
+    );
+
+    if (portRes.rows.length > 0 && portRes.rows[0].source_file_name) {
+      const sourceName = portRes.rows[0].source_file_name;
+      const unassignedRes = await query(
+        `SELECT id, stored_relative_path FROM user_files 
+         WHERE user_id = $1 AND (portfolio_id IS NULL OR portfolio_id = '') AND original_filename = $2`,
+        [userId, sourceName]
+      );
+
+      for (const row of unassignedRes.rows) {
+        try {
+          const absolutePath = resolveUserFilePath(storageFolderKey, row.stored_relative_path);
+          if (fs.existsSync(absolutePath)) {
+            fs.unlinkSync(absolutePath);
+            deletedCount++;
+          }
+        } catch (fileErr) {
+          console.error("[UserStorage] Failed to unlink unassigned source file:", fileErr);
+        }
+        await query(`DELETE FROM user_files WHERE id = $1 AND user_id = $2`, [row.id, userId]);
+      }
+    }
+
+    // 3. Clean up database records
+    await query(
+      `DELETE FROM user_files WHERE portfolio_id = $1 AND user_id = $2`,
+      [portfolioId, userId]
+    );
+  } catch (err) {
+    console.error("[UserStorage] Error deleting portfolio files:", err);
+  }
+  return deletedCount;
+}
+
+/**
+ * Permanently deletes a user account, all linked files/directories on disk,
+ * cached data in Redis, and cascades all database records.
+ */
+export async function deleteUserAccount(
+  userId: string,
+  storageFolderKey: string
+): Promise<boolean> {
+  // 1. Delete physical storage folder and all statements/exports on disk
+  try {
+    deleteUserStorageDirectory(storageFolderKey);
+  } catch (dirErr) {
+    console.error("[UserStorage] Note: Error deleting user folder from disk:", dirErr);
+  }
+
+  // 2. Clear Redis cache for this user
+  try {
+    await deleteCachedData(`portfolios:user:${userId}`);
+  } catch (redisErr) {
+    console.error("[UserStorage] Error clearing Redis cache for user:", redisErr);
+  }
+
+  // 3. Delete user record in PostgreSQL (cascades to portfolios and user_files)
+  const res = await query(`DELETE FROM users WHERE id = $1`, [userId]);
+  return (res.rowCount ?? 0) > 0;
 }

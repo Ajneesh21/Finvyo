@@ -9,6 +9,7 @@ import {
 import { checkRateLimit, getClientIp } from "@/lib/rate-limiter";
 import { validateTransactionsList } from "@/lib/validation";
 import { getAuthUserFromRequest } from "@/lib/auth";
+import { deletePortfolioFiles, linkFilesToPortfolio } from "@/lib/user-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -208,6 +209,9 @@ export async function POST(req: NextRequest) {
     };
 
     const saved = await savePortfolio(portfolio, user.userId);
+    if (portfolio.sourceFileName) {
+      linkFilesToPortfolio(user.userId, portfolio.id, portfolio.sourceFileName).catch(() => {});
+    }
     return NextResponse.json({ portfolio: saved });
   } catch (err: unknown) {
     console.error("[Portfolios API POST] Error:", err);
@@ -302,6 +306,9 @@ export async function DELETE(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Clean up any files on disk and records associated with this portfolio
+    await deletePortfolioFiles(id, user.userId, user.storageFolderKey);
 
     const success = await deletePortfolio(id, user.userId);
     return NextResponse.json({ success, id });

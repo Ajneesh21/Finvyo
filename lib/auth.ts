@@ -21,9 +21,12 @@ export interface UserJwtPayload extends JWTPayload, AuthUser {
 
 function getSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    // Fallback secret for local dev if not explicitly set
-    return new TextEncoder().encode("finvyo_default_jwt_secret_dev_32chars_len!");
+  if (!secret || secret.length < 32) {
+    throw new Error(
+      "[Finvyo] FATAL: JWT_SECRET environment variable is not set or is too short " +
+        "(minimum 32 characters). " +
+        "Generate a secure secret with: openssl rand -hex 32"
+    );
   }
   return new TextEncoder().encode(secret);
 }

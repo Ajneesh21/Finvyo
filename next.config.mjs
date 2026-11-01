@@ -10,6 +10,8 @@ const nextConfig = {
       {
         source: "/(.*)",
         headers: [
+          // X-Frame-Options is kept as a legacy fallback for browsers that don't
+          // support CSP's frame-ancestors directive (set per-request in middleware).
           {
             key: "X-Frame-Options",
             value: "DENY",
@@ -30,14 +32,11 @@ const nextConfig = {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=()",
           },
-          {
-            key: "X-XSS-Protection",
-            value: "1; mode=block",
-          },
-          {
-            key: "Content-Security-Policy",
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://query1.finance.yahoo.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self';",
-          },
+          // NOTE: Content-Security-Policy is intentionally omitted here.
+          // A nonce-based CSP is set dynamically per-request in middleware.ts.
+          // X-XSS-Protection is intentionally omitted — it is deprecated and
+          // removed from all modern browsers (Chrome 78+, Firefox). CSP is the
+          // correct mechanism for XSS protection.
         ],
       },
     ];

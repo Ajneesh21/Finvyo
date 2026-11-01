@@ -14,7 +14,7 @@ import {
   AuthUser,
 } from "@/lib/auth";
 import { query } from "@/lib/db";
-import { getUserDirectory } from "@/lib/user-storage";
+import { getUserDirectory, deleteUserAccount } from "@/lib/user-storage";
 import { savePortfolio } from "@/lib/storage";
 import { checkRateLimit, getClientIp, resetRateLimit } from "@/lib/rate-limiter";
 
@@ -149,7 +149,74 @@ export async function POST(req: NextRequest) {
     }
 
     // ----------------------------------------------------
-    // Action 2: Login
+    // Action 2: Delete Account (Permanently wipe data & files)
+    // ----------------------------------------------------
+    if (action === "delete_account") {
+      const user = await getAuthUserFromRequest(req);
+      if (!user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const ip = getClientIp(req);
+      const delRateCheck = await checkRateLimit(`auth:delete:${ip}`, {
+        maxRequests: 5,
+        windowSeconds: 300,
+      });
+      if (!delRateCheck.allowed) {
+        return NextResponse.json(
+          { error: "Too many attempts. Please try again later." },
+          { status: 429 }
+        );
+      }
+
+      const password = String(body.password || "");
+      if (!password) {
+        return NextResponse.json(
+          { error: "Please enter your password to confirm account deletion." },
+          { status: 400 }
+        );
+      }
+
+      const userRow = await query(
+        `SELECT password_hash, storage_folder_key FROM users WHERE id = $1`,
+        [user.userId]
+      );
+
+      if (userRow.rows.length === 0) {
+        return NextResponse.json({ error: "User account not found." }, { status: 404 });
+      }
+
+      const isMatch = await verifyPassword(password, userRow.rows[0].password_hash);
+      if (!isMatch) {
+        return NextResponse.json(
+          { error: "Incorrect password. Account deletion aborted." },
+          { status: 403 }
+        );
+      }
+
+      await deleteUserAccount(user.userId, userRow.rows[0].storage_folder_key);
+
+      const response = NextResponse.json({
+        success: true,
+        message: "Account, portfolios, and all stored data deleted permanently.",
+      });
+      response.cookies.delete(ACCESS_TOKEN_COOKIE);
+      response.cookies.delete(REFRESH_TOKEN_COOKIE);
+      return response;
+    }
+
+    // ----------------------------------------------------
+    // Action 3: Logout
+    // ----------------------------------------------------
+    if (action === "logout") {
+      const response = NextResponse.json({ success: true, message: "Logged out." });
+      response.cookies.delete(ACCESS_TOKEN_COOKIE);
+      response.cookies.delete(REFRESH_TOKEN_COOKIE);
+      return response;
+    }
+
+    // ----------------------------------------------------
+    // Action 4: Login
     // ----------------------------------------------------
     const ip = getClientIp(req);
     const loginRateKey = `auth:login:${ip}`;
@@ -276,11 +343,50 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET /api/auth — Get current logged-in user profile
+// GET /api/auth — Get current logged-in user profile & storage stats
 export async function GET(req: NextRequest) {
   const user = await getAuthUserFromRequest(req);
   if (!user) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
+  }
+
+  let createdAt: string | null = null;
+  let stats = {
+    portfolioCount: 0,
+    fileCount: 0,
+    storageBytes: 0,
+    totalTransactions: 0,
+  };
+
+  try {
+    const userRow = await query(
+      `SELECT created_at FROM users WHERE id = $1`,
+      [user.userId]
+    );
+    if (userRow.rows.length > 0) {
+      createdAt = userRow.rows[0].created_at;
+    }
+
+    const statsRes = await query(
+      `SELECT 
+        (SELECT COUNT(*) FROM portfolios WHERE user_id = $1) AS portfolio_count,
+        (SELECT COUNT(*) FROM user_files WHERE user_id = $1) AS file_count,
+        (SELECT COALESCE(SUM(file_size_bytes), 0) FROM user_files WHERE user_id = $1) AS storage_bytes,
+        (SELECT COALESCE(SUM(jsonb_array_length(transactions)), 0) FROM portfolios WHERE user_id = $1) AS total_transactions`,
+      [user.userId]
+    );
+
+    if (statsRes.rows.length > 0) {
+      const s = statsRes.rows[0];
+      stats = {
+        portfolioCount: parseInt(s.portfolio_count || "0", 10),
+        fileCount: parseInt(s.file_count || "0", 10),
+        storageBytes: parseInt(s.storage_bytes || "0", 10),
+        totalTransactions: parseInt(s.total_transactions || "0", 10),
+      };
+    }
+  } catch (err) {
+    console.error("[Auth API] Error fetching profile stats:", err);
   }
 
   return NextResponse.json({
@@ -291,13 +397,65 @@ export async function GET(req: NextRequest) {
       email: user.email,
       storageFolderKey: user.storageFolderKey,
       role: user.role,
+      createdAt,
     },
+    stats,
   });
 }
 
-// DELETE /api/auth — Logout
-export async function DELETE() {
-  const response = NextResponse.json({ success: true });
+// DELETE /api/auth — Logout or Delete Account
+export async function DELETE(req: NextRequest) {
+  try {
+    const contentType = req.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const body = await req.json().catch(() => ({}));
+      if (body?.action === "delete_account") {
+        const user = await getAuthUserFromRequest(req);
+        if (!user) {
+          return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        const password = String(body.password || "");
+        if (!password) {
+          return NextResponse.json(
+            { error: "Password required to confirm account deletion." },
+            { status: 400 }
+          );
+        }
+
+        const userRow = await query(
+          `SELECT password_hash, storage_folder_key FROM users WHERE id = $1`,
+          [user.userId]
+        );
+
+        if (userRow.rows.length === 0) {
+          return NextResponse.json({ error: "User not found." }, { status: 404 });
+        }
+
+        const isMatch = await verifyPassword(password, userRow.rows[0].password_hash);
+        if (!isMatch) {
+          return NextResponse.json(
+            { error: "Incorrect password. Account deletion aborted." },
+            { status: 403 }
+          );
+        }
+
+        await deleteUserAccount(user.userId, userRow.rows[0].storage_folder_key);
+
+        const response = NextResponse.json({
+          success: true,
+          message: "Account and all associated files deleted permanently.",
+        });
+        response.cookies.delete(ACCESS_TOKEN_COOKIE);
+        response.cookies.delete(REFRESH_TOKEN_COOKIE);
+        return response;
+      }
+    }
+  } catch (err) {
+    console.error("[Auth API DELETE] Error:", err);
+  }
+
+  const response = NextResponse.json({ success: true, message: "Logged out." });
   response.cookies.delete(ACCESS_TOKEN_COOKIE);
   response.cookies.delete(REFRESH_TOKEN_COOKIE);
   return response;

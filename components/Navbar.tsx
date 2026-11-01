@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { createPortal } from "react-dom";
 import {
   TrendingUp,
@@ -16,6 +17,8 @@ import {
   AlertTriangle,
   Menu,
   LogOut,
+  User,
+  ArrowRight,
 } from "lucide-react";
 import { StoredPortfolio } from "@/lib/storage";
 
@@ -323,14 +326,18 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           {currentUser && (
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80 text-xs text-slate-300">
-              <div className="h-5 w-5 rounded-full bg-blue-600/30 border border-blue-500/40 text-[10px] font-bold text-blue-300 flex items-center justify-center">
+            <Link
+              href="/profile"
+              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80 hover:bg-slate-800 text-xs text-slate-300 hover:text-white transition group shadow-sm"
+              title="View Profile, Storage & Account Settings"
+            >
+              <div className="h-5 w-5 rounded-full bg-blue-600/30 border border-blue-500/40 text-[10px] font-bold text-blue-300 flex items-center justify-center group-hover:border-blue-400 group-hover:text-blue-200 transition">
                 {currentUser.username ? currentUser.username[0].toUpperCase() : "U"}
               </div>
-              <span className="font-medium text-slate-200 truncate max-w-[120px]" title={currentUser.email || currentUser.username}>
+              <span className="font-medium text-slate-200 group-hover:text-white truncate max-w-[120px]" title={currentUser.email || currentUser.username}>
                 {currentUser.username}
               </span>
-            </div>
+            </Link>
           )}
 
           <button
@@ -377,7 +384,27 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
 
               {/* Scrollable Drawer Body */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-5">
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* User Profile Quick Card */}
+                {currentUser && (
+                  <Link
+                    href="/profile"
+                    onClick={() => setIsDrawerOpen(false)}
+                    className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/90 p-3 hover:bg-slate-800 hover:border-slate-700 transition group shadow-sm"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white text-xs font-bold flex items-center justify-center ring-1 ring-blue-400/30 flex-shrink-0">
+                        {currentUser.username ? currentUser.username[0].toUpperCase() : "U"}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-bold text-white truncate">{currentUser.username}</span>
+                        <span className="text-[10px] text-blue-400 font-medium">Manage Profile & Storage</span>
+                      </div>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-slate-500 group-hover:text-blue-400 group-hover:translate-x-0.5 transition" />
+                  </Link>
+                )}
+
                 {/* Active Portfolio Card */}
                 <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-3 space-y-2.5">
                   <div className="flex items-center justify-between text-xs">

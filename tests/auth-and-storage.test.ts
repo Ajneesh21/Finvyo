@@ -14,6 +14,7 @@ import {
 import {
   getUserDirectory,
   resolveUserFilePath,
+  deleteUserStorageDirectory,
 } from "../lib/user-storage";
 
 describe("Lightweight Built-In Auth & Crypto", () => {
@@ -113,5 +114,27 @@ describe("User-Isolated Folder Storage & Security", () => {
       /Path traversal detected/,
       "Must block crossing into another user's directory"
     );
+  });
+
+  test("deletes user storage folder and cleans up files on disk", () => {
+    const dir = getUserDirectory(testKey);
+    assert.ok(fs.existsSync(dir), "User root directory must exist before delete");
+
+    const deleted = deleteUserStorageDirectory(testKey);
+    assert.equal(deleted, true, "Should return true on successful directory deletion");
+    assert.equal(fs.existsSync(dir), false, "User root directory must not exist after delete");
+  });
+
+  test("creates files inside user folder and cleans them up completely on directory deletion", () => {
+    const key = "testcleanup_99887766";
+    const dir = getUserDirectory(key);
+    const dummyFile = path.join(dir, "statements", "dummy_statement.xlsx");
+    fs.writeFileSync(dummyFile, "test data");
+    assert.ok(fs.existsSync(dummyFile), "Dummy statement file must exist");
+
+    const deleted = deleteUserStorageDirectory(key);
+    assert.equal(deleted, true, "Should return true on successful directory deletion");
+    assert.equal(fs.existsSync(dir), false, "User root directory must not exist after delete");
+    assert.equal(fs.existsSync(dummyFile), false, "Files inside must be completely wiped");
   });
 });

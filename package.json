@@ -8,7 +8,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsx --test tests/**/*.test.ts"
+    "test": "node --env-file=.env --import tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
     "@types/pg": "^8.23.1",
